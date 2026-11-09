@@ -548,3 +548,22 @@
     animation: none !important;
   }
 }
+
+/* Corrigir artefato preto na borda direita da curva do login Android. */
+.jf-moto-login-hero {
+  overflow: hidden;
+  isolation: isolate;
+  width: 100%;
+}
+.jf-moto-login-hero::after {
+  left: -12px;
+  right: -12px;
+  width: calc(100% + 24px);
+  transform: none;
+  bottom: -3px;
+  border-radius: 52% 48% 0 0 / 100% 100% 0 0;
+}
+.jf-moto-login {
+  width: 100%;
+  overflow-x: clip;
+}

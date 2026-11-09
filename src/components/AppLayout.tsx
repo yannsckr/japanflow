@@ -46,6 +46,7 @@ const pageTitles: Record<string, string> = {
   '/admin/monitor': 'Monitoria',
   '/gas': 'Gestão de Análise do Sistema',
   '/backlog': 'TI',
+  '/ti/cosmos-releases': 'COSMOS Releases',
   '/board': 'Meu Quadro',
   '/chat': 'Chat',
   '/referencias': 'Referências',
@@ -113,7 +114,10 @@ const AppLayout = () => {
     authenticatedUser?.username?.trim().toLowerCase() || ''
   );
   const isTiRoute =
-    canViewTi && (location.pathname === '/backlog' || location.pathname === '/sentinel');
+    canViewTi &&
+    (location.pathname === '/backlog' ||
+      location.pathname === '/sentinel' ||
+      location.pathname === '/ti/cosmos-releases');
   const [tiLight, setTiLight] = useState(() => localStorage.getItem('jf:ti-theme') === 'light');
   useEffect(() => {
     const sync = () => setTiLight(localStorage.getItem('jf:ti-theme') === 'light');

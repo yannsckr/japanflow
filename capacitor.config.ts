@@ -5,6 +5,7 @@ const config: CapacitorConfig = {
   appName: 'JapanFlow COSMOS',
   webDir: 'dist-android',
   server: { androidScheme: 'https' },
+  android: { useLegacyBridge: true },
 };
 
 export default config;

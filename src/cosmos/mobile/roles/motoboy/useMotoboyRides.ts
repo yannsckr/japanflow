@@ -15,6 +15,9 @@ export type Ride = {
   scheduledFor: string | null;
   routeId: string | null;
   routeOrder: number | null;
+  destinationPlaceId: string | null;
+  destinationLat: number | null;
+  destinationLng: number | null;
   rideValue: number;
   proofUrl: string | null;
   notes: string | null;
@@ -58,6 +61,12 @@ export function useMotoboyRides(userId?: string) {
               scheduledFor: timeString(data.scheduled_for),
               routeId: typeof data.route_id === 'string' ? data.route_id : null,
               routeOrder: typeof data.route_order === 'number' ? data.route_order : null,
+              destinationPlaceId:
+                typeof data.destination_place_id === 'string' ? data.destination_place_id : null,
+              destinationLat:
+                typeof data.destination_lat === 'number' ? data.destination_lat : null,
+              destinationLng:
+                typeof data.destination_lng === 'number' ? data.destination_lng : null,
               rideValue: Number(data.ride_value || 0),
               proofUrl: typeof data.proof_url === 'string' ? data.proof_url : null,
               notes: typeof data.notes === 'string' ? data.notes : null,

@@ -7,6 +7,7 @@ import { userCanAccessExternally } from '@/lib/externalAccess';
 import logoDark from '@/assets/japanflow-logo-dark.png';
 import markDark from '@/assets/japanflow-mark-dark.png';
 import './motoboy.css';
+import { isMotoboyUser } from './motoboyAccess';
 
 export default function MotoboyLogin() {
   const { login, logout, authLoading } = useApp();
@@ -23,6 +24,11 @@ export default function MotoboyLogin() {
     setError('');
     try {
       const user = await login(username.trim(), password);
+      if (!isMotoboyUser(user)) {
+        await logout();
+        setError('Este aplicativo é exclusivo para usuários com cargo de motoboy.');
+        return;
+      }
       // Preservar a mesma restricao de rede do login web existente.
       if (user.role !== 'admin') {
         const ip = await getClientPublicIp();
@@ -32,14 +38,7 @@ export default function MotoboyLogin() {
           return;
         }
       }
-      navigate(
-        user.sectors?.includes('motoboys')
-          ? '/motoboy'
-          : user.role === 'admin'
-            ? '/admin'
-            : '/board',
-        { replace: true }
-      );
+      navigate('/motoboy', { replace: true });
     } catch (reason) {
       console.warn('Falha no login mobile:', reason);
       setError('Não foi possível entrar. Confira suas credenciais.');

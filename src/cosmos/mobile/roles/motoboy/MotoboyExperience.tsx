@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Capacitor } from '@capacitor/core';
+import { startLocationWatcher, stopLocationWatcher } from './nativeLocation';
 import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -20,6 +22,7 @@ import {
   MessageCircle,
   Navigation,
   RefreshCw,
+  Palette,
   Send,
   UserRound,
   WifiOff,
@@ -27,12 +30,14 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useApp } from '@/contexts/AppContext';
+import { useThemeToggle } from '@/hooks/useThemeToggle';
 import ChatPage from '@/pages/ChatPage';
 import MotoboyMap from './MotoboyMap';
 import { useMotoboyRides, type Ride } from './useMotoboyRides';
 import { finishRide, reportRideOccurrence, startRide } from './motoboyWorkflow';
 import logoLight from '@/assets/japanflow-logo-light.png';
 import './motoboy-app.css';
+import CosmosUpdatePrompt from '@/cosmos/releases/CosmosUpdatePrompt';
 
 type Screen =
   | 'home'
@@ -73,11 +78,13 @@ function Top({
   back,
   onBell,
   menu = false,
+  onHome,
 }: {
   title?: string;
   back?: () => void;
   onBell?: () => void;
   menu?: boolean;
+  onHome?: () => void;
 }) {
   return (
     <header className="jm-top">
@@ -90,7 +97,18 @@ function Top({
       ) : (
         <span className="jm-top-placeholder" />
       )}
-      {title ? <strong className="jm-top-title">{title}</strong> : <Brand small />}
+      {title ? (
+        <strong className="jm-top-title">{title}</strong>
+      ) : (
+        <button
+          type="button"
+          className="jm-brand-button"
+          onClick={onHome}
+          aria-label="Voltar ao início"
+        >
+          <Brand small />
+        </button>
+      )}
       {onBell ? (
         <button type="button" className="jm-icon" onClick={onBell} aria-label="Notificações">
           <Bell size={20} />
@@ -171,13 +189,27 @@ function HeaderText({
     </div>
   );
 }
-export default function MotoboyExperience() {
+export default function MotoboyExperience({ initialScreen = 'home' }: { initialScreen?: Screen }) {
   const { currentUser, logout, notifications, markNotificationRead } = useApp();
   const navigate = useNavigate();
+  const { theme, setTheme } = useThemeToggle();
+  useEffect(() => {
+    if (localStorage.getItem('japanflow-theme') === null) setTheme('light');
+  }, [setTheme]);
   const rides = useMotoboyRides(currentUser?.id);
-  const [screen, setScreen] = useState<Screen>('home');
+  const [screen, setScreen] = useState<Screen>(initialScreen);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [drawer, setDrawer] = useState(false);
+  const [drawerMounted, setDrawerMounted] = useState(false);
+  const [tracking, setTracking] = useState(false);
+  const [trackingBusy, setTrackingBusy] = useState(false);
+  useEffect(() => {
+    if (drawer) setDrawerMounted(true);
+    else if (drawerMounted) {
+      const timeout = window.setTimeout(() => setDrawerMounted(false), 320);
+      return () => window.clearTimeout(timeout);
+    }
+  }, [drawer, drawerMounted]);
   const [filter, setFilter] = useState<'all' | 'pending' | 'accepted' | 'completed'>('all');
   const [busy, setBusy] = useState(false);
   const [file, setFile] = useState<File | null>(null);
@@ -185,6 +217,8 @@ export default function MotoboyExperience() {
   const [incidentType, setIncidentType] = useState('Cliente ausente');
   const [incidentText, setIncidentText] = useState('');
   const [online, setOnline] = useState(navigator.onLine);
+  const [mapSheetCollapsed, setMapSheetCollapsed] = useState(false);
+  const [sheetTouchY, setSheetTouchY] = useState<number | null>(null);
   const [gpsState, setGpsState] = useState<'unknown' | 'ok' | 'denied'>('unknown');
   useEffect(() => {
     const update = () => setOnline(navigator.onLine);
@@ -213,22 +247,54 @@ export default function MotoboyExperience() {
     setDrawer(false);
     setScreen(next);
   };
-  const requestGps = () => {
-    if (!navigator.geolocation) {
-      setGpsState('denied');
-      return;
-    }
-    navigator.geolocation.getCurrentPosition(
-      () => {
+  const requestGps = async () => {
+    if (trackingBusy) return;
+    setTrackingBusy(true);
+    try {
+      if (Capacitor.isNativePlatform()) {
+        await startLocationWatcher(
+          () => setGpsState('ok'),
+          (message) => {
+            setGpsState('denied');
+            toast.error(message);
+          }
+        );
+        setTracking(true);
         setGpsState('ok');
-        toast.success('Localização autorizada');
-      },
-      () => {
-        setGpsState('denied');
-        toast.error('Permissão de GPS não concedida');
-      },
-      { enableHighAccuracy: true, timeout: 12000 }
-    );
+        toast.success('Rastreamento ativo no dispositivo');
+      } else if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          () => {
+            setGpsState('ok');
+            toast.success('Localização autorizada no navegador');
+          },
+          () => {
+            setGpsState('denied');
+            toast.error('Localização não autorizada');
+          },
+          { enableHighAccuracy: true, timeout: 12000 }
+        );
+      } else {
+        throw new Error('GPS não disponível neste dispositivo');
+      }
+    } catch (error) {
+      setGpsState('denied');
+      toast.error(error instanceof Error ? error.message : 'Não foi possível iniciar o GPS');
+    } finally {
+      setTrackingBusy(false);
+    }
+  };
+  const stopGps = async () => {
+    setTrackingBusy(true);
+    try {
+      await stopLocationWatcher();
+      setTracking(false);
+      toast.success('Rastreamento encerrado');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Erro ao encerrar rastreamento');
+    } finally {
+      setTrackingBusy(false);
+    }
   };
   const execute = async (action: () => Promise<void>, success: string, after: Screen) => {
     if (busy || !online) return;
@@ -244,7 +310,13 @@ export default function MotoboyExperience() {
     }
   };
   const unread = notifications.filter((n) => !n.read).length;
-  const sumCompleted = rides.completed.reduce((v, r) => v + r.rideValue, 0);
+  const today = new Date().toLocaleDateString('en-CA');
+  const todayRides = rides.all.filter(
+    (r) => (r.scheduledFor || r.createdAt || '').slice(0, 10) === today
+  );
+  const todayCompleted = rides.completed.filter(
+    (r) => (r.completedAt || '').slice(0, 10) === today
+  );
   const list = useMemo(
     () => rides.all.filter((r) => filter === 'all' || r.status === filter),
     [rides.all, filter]
@@ -275,10 +347,12 @@ export default function MotoboyExperience() {
       title={title}
       back={screen === 'home' ? undefined : () => go('home')}
       onBell={() => go('notifications')}
+      onHome={() => go('home')}
     />
   );
   return (
-    <main className="jm-app">
+    <main className={`jm-app jm-theme-${theme}`}>
+      <CosmosUpdatePrompt />
       {!online && screen !== 'offline' && (
         <button className="jm-offline-alert" onClick={() => go('offline')}>
           <WifiOff size={15} /> Sem conexão — toque para detalhes
@@ -290,7 +364,14 @@ export default function MotoboyExperience() {
             <button className="jm-icon" onClick={() => setDrawer(true)} aria-label="Abrir menu">
               <Menu size={21} />
             </button>
-            <Brand small />
+            <button
+              type="button"
+              className="jm-brand-button"
+              onClick={() => go('home')}
+              aria-label="Voltar ao início"
+            >
+              <Brand small />
+            </button>
             <button
               className="jm-icon"
               onClick={() => go('notifications')}
@@ -302,9 +383,6 @@ export default function MotoboyExperience() {
           </header>
           <div className="jm-scroll jm-home-scroll">
             <div className="jm-home-welcome">
-              <span className="jm-online">
-                <i /> Disponível para entregas
-              </span>
               <small>
                 {new Date().toLocaleDateString('pt-BR', {
                   weekday: 'short',
@@ -313,15 +391,15 @@ export default function MotoboyExperience() {
                 })}
               </small>
               <h1>
-                Bom dia, {currentUser?.name?.split(' ')[0] || 'motoboy'}{' '}
-                <span aria-hidden="true">👋</span>
+                Oi, {currentUser?.name?.split(' ')[0] || 'motoboy'}!{' '}
+                <span aria-hidden="true">🏍️</span>
               </h1>
               <p>Acompanhe suas corridas e sua próxima entrega.</p>
             </div>
             <div className="jm-stats">
-              <Tile label="Corridas hoje" value={rides.route.length} />
-              <Tile label="Concluídas" value={rides.completed.length} />
-              <Tile label="Valor concluído" value={money(sumCompleted)} />
+              <Tile label="Corridas hoje" value={todayRides.length} />
+              <Tile label="Concluídas" value={todayCompleted.length} />
+              <Tile label="Pendentes" value={rides.pending.length} />
             </div>
             <div className="jm-title-line">
               <strong>Sua próxima rota</strong>
@@ -330,7 +408,7 @@ export default function MotoboyExperience() {
               </button>
             </div>
             <div className="jm-home-map">
-              <MotoboyMap />
+              <MotoboyMap rides={rides.route} />
             </div>
             <div className="jm-title-line">
               <strong>Em destaque</strong>
@@ -526,53 +604,78 @@ export default function MotoboyExperience() {
           {top('Rota de entrega')}
           <div className="jm-scroll jm-map-screen">
             <div className="jm-map-large">
-              <MotoboyMap />
+              <MotoboyMap rides={rides.route} />
             </div>
-            <div className="jm-map-sheet">
-              <small>DESTINO / SUA PRÓXIMA ENTREGA</small>
-              <h2>
-                {selected?.clientName ||
-                  rides.active[0]?.clientName ||
-                  rides.pending[0]?.clientName ||
-                  'Nenhuma rota ativa'}
-              </h2>
-              <p>
-                <MapPin size={15} />
-                {selected?.location ||
-                  rides.active[0]?.location ||
-                  rides.pending[0]?.location ||
-                  'Aguardando uma entrega atribuída'}
-              </p>
-              <p className="jm-muted">
-                O mapa mostra sua localização. Para orientação curva a curva, abra o aplicativo de
-                mapas.
-              </p>
-              <div className="jm-action-pair">
-                <Button
-                  secondary
-                  onClick={() => {
-                    const r = selected || rides.active[0] || rides.pending[0];
-                    if (r) open(r);
-                    else go('rides');
-                  }}
-                >
-                  Ver corrida
-                </Button>
-                <Button
-                  onClick={() => {
-                    const r = selected || rides.active[0] || rides.pending[0];
-                    if (r?.location)
-                      window.open(
-                        `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(r.location)}`,
-                        '_blank',
-                        'noopener,noreferrer'
-                      );
-                    else toast.error('Não há endereço disponível');
-                  }}
-                >
-                  <Navigation size={17} /> Navegar
-                </Button>
-              </div>
+            <div
+              className={`jm-map-sheet ${mapSheetCollapsed ? 'jm-map-sheet-collapsed' : ''}`}
+              onTouchStart={(event) => setSheetTouchY(event.touches[0]?.clientY ?? null)}
+              onTouchEnd={(event) => {
+                if (sheetTouchY === null) return;
+                const delta = (event.changedTouches[0]?.clientY ?? sheetTouchY) - sheetTouchY;
+                if (Math.abs(delta) > 55) setMapSheetCollapsed(delta > 0);
+                setSheetTouchY(null);
+              }}
+            >
+              <button
+                className="jm-sheet-handle"
+                type="button"
+                aria-expanded={!mapSheetCollapsed}
+                aria-label={
+                  mapSheetCollapsed ? 'Expandir painel de entregas' : 'Recolher painel de entregas'
+                }
+                onClick={() => setMapSheetCollapsed((v) => !v)}
+              >
+                <span />
+                <small>{mapSheetCollapsed ? 'Mostrar entregas' : 'Recolher entregas'}</small>
+              </button>
+              {!mapSheetCollapsed && (
+                <>
+                  <small>DESTINO / SUA PRÓXIMA ENTREGA</small>
+                  <h2>
+                    {selected?.clientName ||
+                      rides.active[0]?.clientName ||
+                      rides.pending[0]?.clientName ||
+                      'Nenhuma rota ativa'}
+                  </h2>
+                  <p>
+                    <MapPin size={15} />
+                    {selected?.location ||
+                      rides.active[0]?.location ||
+                      rides.pending[0]?.location ||
+                      'Aguardando uma entrega atribuída'}
+                  </p>
+                  <p className="jm-muted">
+                    O mapa mostra sua localização. Para orientação curva a curva, abra o aplicativo
+                    de mapas.
+                  </p>
+                  <div className="jm-action-pair">
+                    <Button
+                      secondary
+                      onClick={() => {
+                        const r = selected || rides.active[0] || rides.pending[0];
+                        if (r) open(r);
+                        else go('rides');
+                      }}
+                    >
+                      Ver corrida
+                    </Button>
+                    <Button
+                      onClick={() => {
+                        const r = selected || rides.active[0] || rides.pending[0];
+                        if (r?.location)
+                          window.open(
+                            `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(r.location)}`,
+                            '_blank',
+                            'noopener,noreferrer'
+                          );
+                        else toast.error('Não há endereço disponível');
+                      }}
+                    >
+                      <Navigation size={17} /> Navegar
+                    </Button>
+                  </div>
+                </>
+              )}
             </div>
           </div>
           {bottom}
@@ -667,6 +770,10 @@ export default function MotoboyExperience() {
         <>
           {top('Mensagens')}
           <div className="jm-scroll jm-chat-wrap">
+            <div className="jm-chat-intro">
+              <strong>Conversas da equipe</strong>
+              <span>Mensagens sincronizadas com o JapanFlow Web</span>
+            </div>
             <ChatPage />
           </div>
           {bottom}
@@ -716,9 +823,8 @@ export default function MotoboyExperience() {
               title="Histórico"
               description="Consulte suas corridas concluídas."
             />
-            <div className="jm-stats jm-stats-inline">
-              <Tile label="Concluídas" value={rides.completed.length} />
-              <Tile label="Valor total" value={money(sumCompleted)} />
+            <div className="jm-stats jm-stats-inline jm-history-stats">
+              <Tile label="Corridas concluídas" value={rides.completed.length} />
             </div>
             {rides.completed.map((r) => (
               <Card ride={r} key={r.id} onClick={() => open(r)} />
@@ -907,22 +1013,37 @@ export default function MotoboyExperience() {
                     ? 'não autorizada'
                     : 'não verificada'}
               </b>
-              <small>O rastreamento em segundo plano não é ativado por esta tela.</small>
+              <small>
+                {tracking
+                  ? 'Rastreamento ativo, inclusive em segundo plano. Uma notificação Android permanece visível.'
+                  : 'O rastreamento só inicia após sua autorização. Na versão web, apenas a localização pontual está disponível.'}
+              </small>
             </div>
-            <Button onClick={requestGps}>
-              <MapPin size={17} /> Autorizar localização
-            </Button>
+            {tracking ? (
+              <Button onClick={stopGps} disabled={trackingBusy}>
+                <MapPin size={17} /> Encerrar rastreamento
+              </Button>
+            ) : (
+              <Button onClick={requestGps} disabled={trackingBusy}>
+                <MapPin size={17} />{' '}
+                {trackingBusy ? 'Solicitando acesso…' : 'Autorizar localização'}
+              </Button>
+            )}
           </div>
         </>
       )}
-      {drawer && (
-        <div className="jm-drawer-overlay" onClick={() => setDrawer(false)}>
+      {drawerMounted && (
+        <div
+          className={`jm-drawer-overlay ${drawer ? 'jm-drawer-open' : 'jm-drawer-closing'}`}
+          onClick={() => setDrawer(false)}
+        >
           <aside
             className="jm-drawer"
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
             aria-label="Menu"
+            aria-hidden={!drawer}
           >
             <div className="jm-drawer-head">
               <Brand />
@@ -959,6 +1080,23 @@ export default function MotoboyExperience() {
                 <ChevronRight size={15} />
               </button>
             ))}
+            <div className="jm-theme-settings">
+              <label htmlFor="jm-theme-select">
+                <Palette size={16} /> Aparência
+              </label>
+              <select
+                id="jm-theme-select"
+                value={theme}
+                onChange={(e) =>
+                  setTheme(e.target.value as 'light' | 'dark' | 'mono-light' | 'mono-dark')
+                }
+              >
+                <option value="light">Claro</option>
+                <option value="dark">Escuro</option>
+                <option value="mono-light">Monocromático claro</option>
+                <option value="mono-dark">Monocromático escuro</option>
+              </select>
+            </div>
             <div className="jm-drawer-footer">
               <span className="jm-avatar">{currentUser?.name?.[0] || 'J'}</span>
               <div>

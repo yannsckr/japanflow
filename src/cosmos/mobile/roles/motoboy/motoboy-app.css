@@ -970,3 +970,359 @@
     scroll-behavior: auto !important;
   }
 }
+
+/* COSMOS Android v3.2 — motion, rolagem nativa e responsividade */
+.jm-scroll,
+.jm-drawer {
+  scrollbar-width: none;
+  scroll-behavior: smooth;
+}
+.jm-scroll::-webkit-scrollbar,
+.jm-drawer::-webkit-scrollbar {
+  display: none;
+}
+.jm-app {
+  width: 100%;
+  max-width: 100vw;
+  overflow-x: clip;
+}
+.jm-app button,
+.jm-app a,
+.jm-app input,
+.jm-app select,
+.jm-ride-card,
+.jm-tile {
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    transform 0.2s cubic-bezier(0.22, 1, 0.36, 1),
+    background-color 0.25s ease,
+    border-color 0.25s ease,
+    box-shadow 0.25s ease,
+    opacity 0.2s ease;
+}
+.jm-app button:not(:disabled):active {
+  transform: scale(0.97);
+}
+.jm-app .jm-scroll > *,
+.jm-app .jm-success > * {
+  animation: jm-enter 0.3s both cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes jm-enter {
+  from {
+    opacity: 0;
+    transform: translateY(7px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.jm-brand-button {
+  display: flex;
+  border: 0;
+  background: transparent;
+  min-width: 0;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+.jm-brand-button .jm-brand {
+  margin: auto;
+}
+.jm-map-sheet {
+  transition:
+    padding 0.3s ease,
+    min-height 0.3s ease;
+  max-height: min(48dvh, 340px);
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+.jm-map-sheet::-webkit-scrollbar {
+  display: none;
+}
+.jm-map-sheet-collapsed {
+  padding-top: 8px;
+  padding-bottom: 9px;
+}
+.jm-sheet-handle {
+  width: 100%;
+  background: none;
+  color: #777;
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+  gap: 4px;
+  border: 0;
+  padding: 0 0 12px;
+  font-size: 11px;
+}
+.jm-sheet-handle span {
+  width: 44px;
+  height: 5px;
+  background: #c9c9cc;
+  border-radius: 99px;
+}
+.jm-map-screen {
+  flex: 1;
+  overflow: hidden;
+}
+.jm-map-large {
+  min-height: 145px;
+}
+.jm-map-screen .jm-map-sheet-collapsed {
+  flex: 0 0 auto;
+}
+.jm-chat-intro {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 14px 16px;
+  background: #f8f8fa;
+  color: #29292b;
+  border-bottom: 1px solid #eee;
+}
+.jm-chat-intro strong {
+  font-size: 14px;
+}
+.jm-chat-intro span {
+  font-size: 11px;
+  color: #777;
+}
+.jm-chat-wrap {
+  overflow-x: clip;
+}
+.jm-chat-wrap > div:not(.jm-chat-intro) {
+  min-width: 0;
+  max-width: 100%;
+}
+.jm-chat-wrap button,
+.jm-chat-wrap input {
+  max-width: 100%;
+}
+.jm-history-stats {
+  grid-template-columns: 1fr;
+}
+.jm-theme-settings {
+  margin-top: 12px;
+  padding: 12px 10px;
+  border-top: 1px solid #eee;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.jm-theme-settings label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.jm-theme-settings select {
+  background: #f4f4f6;
+  color: #29292d;
+  border: 1px solid #e5e5e8;
+  width: 100%;
+  border-radius: 10px;
+  padding: 10px;
+  font-size: 12px;
+}
+.jm-theme-dark,
+.jm-theme-mono-dark {
+  --jm-text: #f5f5f6;
+  --jm-line: #36363d;
+  background: #151519;
+  color: #f5f5f6;
+}
+.jm-theme-dark .jm-top,
+.jm-theme-dark .jm-home-header,
+.jm-theme-dark .jm-panel,
+.jm-theme-dark .jm-tile,
+.jm-theme-dark .jm-ride-card,
+.jm-theme-dark .jm-map-sheet,
+.jm-theme-dark .jm-drawer,
+.jm-theme-dark .jm-chat-wrap,
+.jm-theme-dark .jm-bottom,
+.jm-theme-mono-dark .jm-top,
+.jm-theme-mono-dark .jm-home-header,
+.jm-theme-mono-dark .jm-panel,
+.jm-theme-mono-dark .jm-tile,
+.jm-theme-mono-dark .jm-ride-card,
+.jm-theme-mono-dark .jm-map-sheet,
+.jm-theme-mono-dark .jm-drawer,
+.jm-theme-mono-dark .jm-chat-wrap,
+.jm-theme-mono-dark .jm-bottom {
+  background: #222229;
+  color: #f5f5f6;
+  border-color: #35353c;
+}
+.jm-theme-dark .jm-home-scroll,
+.jm-theme-mono-dark .jm-home-scroll {
+  background: #151519;
+}
+.jm-theme-dark .jm-chat-intro,
+.jm-theme-mono-dark .jm-chat-intro {
+  background: #222229;
+  color: #f5f5f6;
+}
+.jm-theme-mono-dark {
+  --jm-red: #e5e5e5;
+}
+.jm-theme-mono-light {
+  --jm-red: #333;
+}
+.jf-google-map-warning {
+  position: absolute;
+  inset: auto 12px 12px;
+  background: #fff;
+  padding: 12px;
+  z-index: 3;
+  border-radius: 10px;
+  box-shadow: 0 3px 16px #0002;
+  display: flex;
+  gap: 9px;
+  align-items: center;
+  color: #444;
+  font-size: 12px;
+}
+.jf-google-map-wrap .jf-moto-map-layer {
+  min-height: 100%;
+  width: 100%;
+}
+.jf-moto-blocked {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  text-align: center;
+  gap: 16px;
+  padding: 30px;
+  min-height: 100dvh;
+  background: #fafafa;
+  color: #171717;
+}
+.jf-moto-blocked h1 {
+  font-size: 23px;
+  font-weight: 750;
+}
+.jf-moto-blocked p {
+  max-width: 330px;
+  line-height: 1.6;
+}
+.jf-moto-blocked button {
+  background: #d8191c;
+  color: white;
+  border-radius: 12px;
+  padding: 12px 20px;
+}
+@media (max-width: 360px) {
+  .jm-page,
+  .jm-home-scroll {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+  .jm-bottom button {
+    min-width: 0;
+    padding-left: 1px;
+    padding-right: 1px;
+  }
+  .jm-brand-small {
+    max-width: 32vw;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .jm-app *,
+  .jm-app *::before,
+  .jm-app *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Chat: layout nativo e hierarquia compacta, preservando ChatPage e serviços web. */
+.jm-chat-wrap {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  background: #f6f6f8;
+}
+.jm-chat-wrap > div:not(.jm-chat-intro) {
+  flex: 1;
+  min-height: 0;
+  border-radius: 0;
+  border-left: 0;
+  border-right: 0;
+  box-shadow: none;
+}
+.jm-chat-wrap > div:not(.jm-chat-intro) > div {
+  min-width: 0;
+}
+.jm-chat-wrap .rounded-2xl {
+  border-radius: 12px;
+}
+.jm-chat-wrap .overflow-y-auto {
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.jm-chat-wrap .overflow-y-auto::-webkit-scrollbar {
+  display: none;
+}
+.jm-chat-wrap input {
+  min-width: 0;
+  font-size: 16px;
+}
+.jm-theme-dark .jm-chat-wrap,
+.jm-theme-mono-dark .jm-chat-wrap {
+  background: #222229;
+}
+.jm-theme-dark .jm-brand,
+.jm-theme-mono-dark .jm-brand {
+  filter: brightness(0) invert(1);
+}
+
+/* COSMOS PATCH — drawer GPU-friendly com animação de entrada e saída */
+.jm-drawer-overlay {
+  opacity: 1;
+  transition: opacity 300ms ease;
+  will-change: opacity;
+}
+.jm-drawer {
+  transform: translate3d(0, 0, 0);
+  transition: transform 320ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform;
+  backface-visibility: hidden;
+}
+.jm-drawer-closing {
+  opacity: 0;
+  pointer-events: none;
+}
+.jm-drawer-closing .jm-drawer {
+  transform: translate3d(-102%, 0, 0);
+}
+.jm-drawer-open .jm-drawer {
+  animation: jm-drawer-enter 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes jm-drawer-enter {
+  from {
+    transform: translate3d(-102%, 0, 0);
+  }
+  to {
+    transform: translate3d(0, 0, 0);
+  }
+}
+/* O chat ocupa a altura disponível no shell nativo, sem depender do viewport web. */
+.jm-chat-wrap {
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+.jm-chat-wrap > div:not(.jm-chat-intro) {
+  min-height: 0;
+  height: 100%;
+}
+@media (prefers-reduced-motion: reduce) {
+  .jm-drawer-overlay,
+  .jm-drawer {
+    transition: none !important;
+    animation: none !important;
+  }
+}

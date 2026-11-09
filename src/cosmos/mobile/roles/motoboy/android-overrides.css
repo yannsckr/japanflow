@@ -1,0 +1,17 @@
+/* Apenas entrada Android: notificações dentro da área segura e acima da barra inferior. */
+[data-sonner-toaster] {
+  top: calc(env(safe-area-inset-top, 0px) + 66px) !important;
+  bottom: auto !important;
+  z-index: 99999 !important;
+}
+[data-radix-toast-viewport] {
+  top: calc(env(safe-area-inset-top, 0px) + 66px) !important;
+  bottom: auto !important;
+  z-index: 99999 !important;
+}
+html,
+body,
+#root {
+  max-width: 100%;
+  overflow-x: hidden;
+}
