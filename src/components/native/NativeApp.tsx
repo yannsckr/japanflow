@@ -15,8 +15,7 @@ const ChatPage = lazy(() => import('@/pages/ChatPage'));
 const TaskTrackingPage = lazy(() => import('@/pages/TaskTrackingPage'));
 const ProfilePage = lazy(() => import('@/pages/ProfilePage'));
 const MotoboyTrackingPage = lazy(() => import('@/pages/MotoboyTrackingPage'));
-const DriveScreen = lazy(() => import('@/cosmos/shared/components/DriveScreen'));
-
+const DriveScreen = lazy(() => import('@/components/cosmos/shared/components/DriveScreen'));
 const queryClient = new QueryClient();
 
 export default function NativeApp({ platform }: { platform: NativePlatform }) {
