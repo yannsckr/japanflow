@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { LocateFixed, MapPin } from 'lucide-react';
 import type { Ride } from './useMotoboyRides';
 
@@ -27,7 +27,7 @@ const placeLocationCache = new Map<string, Geo>();
 function loadMaps(key: string): Promise<GoogleMaps> {
   if (window.google?.maps?.Map) return Promise.resolve(window.google.maps);
   if (loading) return loading;
-  loading = new Promise((resolve, reject) => {
+  loading = new Promise<GoogleMaps>((resolve, reject) => {
     const script = document.createElement('script');
     script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&v=weekly&loading=async`;
     script.async = true;
@@ -59,7 +59,10 @@ export default function MotoboyMap({ rides = [] }: { rides?: Ride[] }) {
   const storeLng = Number(import.meta.env.VITE_GOOGLE_STORE_LNG);
   const hasOrigin =
     Number.isFinite(storeLat) && Number.isFinite(storeLng) && storeLat !== 0 && storeLng !== 0;
-  const origin = hasOrigin ? { lat: storeLat, lng: storeLng } : CITY_CENTER;
+  const origin = useMemo<Geo>(
+    () => (hasOrigin ? { lat: storeLat, lng: storeLng } : CITY_CENTER),
+    [hasOrigin, storeLat, storeLng]
+  );
   useEffect(() => {
     if (!key || !container.current) {
       setError('O mapa Google aguarda a chave de exibição VITE_GOOGLE_MAPS_BROWSER_KEY.');
