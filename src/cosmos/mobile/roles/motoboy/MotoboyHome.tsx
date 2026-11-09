@@ -28,7 +28,7 @@ function RideCard({ ride, onOpen }: { ride: Ride; onOpen: () => void }) {
         <Bike size={21} />
         <ChevronRight size={17} />
       </span>
-      <strong>{title}</strong>
+      <strong>{ride.routeOrder ? `${ride.routeOrder}. ${title}` : title}</strong>
       <span className="jf-moto-card-location">{ride.location || 'Endereço não informado'}</span>
       <small>{ride.status === 'accepted' ? 'Em andamento' : 'Aguardando início'}</small>
       <span className="jf-moto-card-accent" aria-hidden="true" />
@@ -142,6 +142,16 @@ export default function MotoboyHome() {
               <MapPin size={17} /> {selected.location || 'Endereço não informado'}
             </p>
             <p>{selected.description}</p>
+            {selected.location && (
+              <a
+                className="jf-moto-action"
+                href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(selected.location)}&travelmode=driving`}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Abrir destino no Google Maps
+              </a>
+            )}
             <p className="jf-moto-detail-note">
               Os comandos de iniciar/finalizar serão integrados ao fluxo de comprovante e às
               permissões existentes. Nenhuma ação é simulada nesta tela.

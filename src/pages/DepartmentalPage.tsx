@@ -55,6 +55,7 @@ import { uploadImage } from '@/lib/uploadImage';
 import ConfirmActionDialog from '@/components/ConfirmActionDialog';
 import { MotoboyLocationSharing } from '@/components/MotoboyLiveMap';
 import { Link } from 'react-router-dom';
+import RoutePlanner from '@/components/motoboy/RoutePlanner';
 
 const MotoboyTimer = ({ startTime }: { startTime: string }) => {
   const [, setTick] = useState(0);
@@ -1000,6 +1001,10 @@ const DepartmentalPage = () => {
               currentUserId={currentUser.id}
               getName={getName}
             />
+
+            {canManageMotoboy && (
+              <RoutePlanner assignments={dept.motoboyAssignments} motoboys={motoboys} />
+            )}
 
             {/* Pending approval section for Patricia / admins */}
             {canManageMotoboy &&

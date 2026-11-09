@@ -11,26 +11,26 @@ export type Ride = {
   status: string;
   createdAt: string;
   acceptedAt: string | null;
+  completedAt: string | null;
   scheduledFor: string | null;
   routeId: string | null;
   routeOrder: number | null;
+  rideValue: number;
+  proofUrl: string | null;
+  notes: string | null;
+  taskId: string | null;
 };
-
 const timeString = (value: unknown): string | null => {
   if (!value) return null;
   if (typeof value === 'string') return value;
-  if (typeof value === 'object' && 'toDate' in value && typeof value.toDate === 'function') {
+  if (typeof value === 'object' && 'toDate' in value && typeof value.toDate === 'function')
     return value.toDate().toISOString();
-  }
   return null;
 };
-
-// Escuta apenas as corridas do funcionario autenticado. Reutiliza a colecao do site.
 export function useMotoboyRides(userId?: string) {
   const [rides, setRides] = useState<Ride[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
   useEffect(() => {
     if (!userId) {
       setRides([]);
@@ -54,24 +54,26 @@ export function useMotoboyRides(userId?: string) {
               status: String(data.status || 'pending'),
               createdAt: timeString(data.created_at) || '',
               acceptedAt: timeString(data.accepted_at),
+              completedAt: timeString(data.completed_at),
               scheduledFor: timeString(data.scheduled_for),
               routeId: typeof data.route_id === 'string' ? data.route_id : null,
               routeOrder: typeof data.route_order === 'number' ? data.route_order : null,
+              rideValue: Number(data.ride_value || 0),
+              proofUrl: typeof data.proof_url === 'string' ? data.proof_url : null,
+              notes: typeof data.notes === 'string' ? data.notes : null,
+              taskId: typeof data.task_id === 'string' ? data.task_id : null,
             };
           })
         );
         setLoading(false);
       },
       (reason) => {
-        console.error('Falha ao acompanhar corridas do motoboy:', reason);
-        setError(
-          'Não foi possível sincronizar as corridas. Verifique a conexão e suas permissões.'
-        );
+        console.error('Corridas motoboy:', reason);
+        setError('Não foi possível sincronizar corridas.');
         setLoading(false);
       }
     );
   }, [userId]);
-
   const grouped = useMemo(() => {
     const sorted = [...rides].sort(
       (a, b) =>
@@ -79,15 +81,13 @@ export function useMotoboyRides(userId?: string) {
         (a.scheduledFor || a.createdAt).localeCompare(b.scheduledFor || b.createdAt)
     );
     return {
-      // Corridas designadas ainda nao iniciadas: definicao operacional da Patricia.
-      pending: sorted.filter((ride) => ride.status === 'pending'),
-      active: sorted.filter((ride) => ride.status === 'accepted'),
-      scheduled: sorted.filter((ride) => ride.status === 'pending_approval'),
-      completed: sorted.filter((ride) => ride.status === 'completed'),
-      // 'Sua rota' inclui o planejamento e a corrida ativa; nao inclui pendencias de aprovacao.
-      route: sorted.filter((ride) => ride.status === 'pending' || ride.status === 'accepted'),
+      all: sorted,
+      pending: sorted.filter((r) => r.status === 'pending'),
+      active: sorted.filter((r) => r.status === 'accepted'),
+      scheduled: sorted.filter((r) => r.status === 'pending_approval'),
+      completed: sorted.filter((r) => r.status === 'completed'),
+      route: sorted.filter((r) => ['pending', 'accepted'].includes(r.status)),
     };
   }, [rides]);
-
   return { ...grouped, loading, error };
 }

@@ -10,8 +10,7 @@ import MotoboySplash from '@/cosmos/mobile/roles/motoboy/MotoboySplash';
 
 const LoginPage = lazy(() => import('@/pages/LoginPage'));
 const MobileLogin = lazy(() => import('@/cosmos/mobile/roles/motoboy/MotoboyLogin'));
-const MotoboyHome = lazy(() => import('@/cosmos/mobile/roles/motoboy/MotoboyHome'));
-const MotoboyRides = lazy(() => import('@/cosmos/mobile/roles/motoboy/MotoboyRides'));
+const MotoboyExperience = lazy(() => import('@/cosmos/mobile/roles/motoboy/MotoboyExperience'));
 const EmployeeBoardPage = lazy(() => import('@/pages/EmployeeBoardPage'));
 const AdminPage = lazy(() => import('@/pages/AdminPage'));
 const ChatPage = lazy(() => import('@/pages/ChatPage'));
@@ -64,18 +63,10 @@ function AppRoutes({ platform }: { platform: NativePlatform }) {
         {platform === 'android' && (
           <>
             <Route
-              path="/motoboy"
+              path="/motoboy/*"
               element={
                 <MotoboyGate>
-                  <MotoboyHome />
-                </MotoboyGate>
-              }
-            />
-            <Route
-              path="/motoboy/corridas"
-              element={
-                <MotoboyGate>
-                  <MotoboyRides />
+                  <MotoboyExperience />
                 </MotoboyGate>
               }
             />

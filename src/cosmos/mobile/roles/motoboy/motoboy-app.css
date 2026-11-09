@@ -1,0 +1,972 @@
+/* JapanFlow Motoboys – escopo Android; a interface BOREAL permanece intocada. */
+.jm-app {
+  --jm-red: #d8191c;
+  --jm-text: #1e1e21;
+  --jm-muted: #85858d;
+  --jm-line: #e7e7e9;
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+  height: 100dvh;
+  background: #f7f7f9;
+  color: var(--jm-text);
+  font-family:
+    Inter,
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    sans-serif;
+  overflow: hidden;
+  isolation: isolate;
+}
+.jm-app * {
+  box-sizing: border-box;
+}
+.jm-app button,
+.jm-app input,
+.jm-app textarea,
+.jm-app select {
+  font: inherit;
+}
+.jm-app button {
+  cursor: pointer;
+}
+.jm-app button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+.jm-app button:focus-visible,
+.jm-app a:focus-visible,
+.jm-app input:focus-visible,
+.jm-app textarea:focus-visible {
+  outline: 2px solid #d8191c;
+  outline-offset: 2px;
+}
+.jm-top {
+  height: calc(56px + env(safe-area-inset-top));
+  padding: env(safe-area-inset-top) 16px 0;
+  display: grid;
+  grid-template-columns: 40px 1fr 40px;
+  align-items: center;
+  flex: none;
+  background: #fff;
+  border-bottom: 1px solid var(--jm-line);
+  position: relative;
+  z-index: 4;
+}
+.jm-home-header {
+  height: calc(58px + env(safe-area-inset-top));
+  padding: env(safe-area-inset-top) 15px 0;
+  display: grid;
+  grid-template-columns: 40px 1fr 40px;
+  align-items: center;
+  background: #fff;
+  flex: none;
+  border-bottom: 1px solid #efeff0;
+}
+.jm-brand {
+  width: min(155px, 47vw);
+  height: 45px;
+  object-fit: contain;
+  margin: auto;
+}
+.jm-brand-small {
+  height: 32px;
+  width: min(108px, 35vw);
+}
+.jm-top-title {
+  text-align: center;
+  font-size: 14px;
+  font-weight: 750;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.jm-top-placeholder {
+  width: 40px;
+  height: 40px;
+}
+.jm-icon {
+  border: 0 !important;
+  background: transparent !important;
+  color: var(--jm-text) !important;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  position: relative;
+  padding: 0 !important;
+}
+.jm-dot {
+  position: absolute;
+  background: #e3222a;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  top: 7px;
+  right: 7px;
+}
+.jm-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
+}
+.jm-page {
+  padding: 22px clamp(14px, 4.5vw, 25px) calc(30px + env(safe-area-inset-bottom));
+}
+.jm-home-scroll {
+  padding: 19px clamp(14px, 4.5vw, 24px) 28px;
+}
+.jm-home-welcome {
+  margin-bottom: 18px;
+}
+.jm-home-welcome > small {
+  float: right;
+  color: var(--jm-muted);
+  font-size: 10px;
+  text-transform: uppercase;
+}
+.jm-home-welcome h1 {
+  font-size: clamp(19px, 5.4vw, 24px);
+  font-weight: 800;
+  margin: 10px 0 3px;
+  letter-spacing: -0.03em;
+  line-height: 1.2;
+}
+.jm-home-welcome p,
+.jm-screen-head p {
+  font-size: 12px;
+  color: var(--jm-muted);
+  line-height: 1.5;
+  margin: 0;
+}
+.jm-online {
+  font-size: 10px;
+  color: #13865a;
+  font-weight: 700;
+}
+.jm-online i {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  background: #12aa70;
+  border-radius: 100%;
+  margin-right: 4px;
+}
+.jm-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 15px 0 22px;
+}
+.jm-tile {
+  min-width: 0;
+  background: #fff;
+  border: 1px solid #ebebef;
+  border-radius: 13px;
+  min-height: 67px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  text-align: center;
+  padding: 7px 3px;
+  box-shadow: 0 1px 4px #00000005;
+}
+.jm-tile b {
+  font-size: clamp(15px, 4.6vw, 22px);
+  font-weight: 800;
+  letter-spacing: -0.045em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.jm-tile small {
+  font-size: clamp(8px, 2.55vw, 10px);
+  color: var(--jm-muted);
+  white-space: normal;
+  line-height: 1.25;
+}
+.jm-title-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin: 16px 0 10px;
+  min-width: 0;
+}
+.jm-title-line strong {
+  font-size: 13px;
+  font-weight: 750;
+  min-width: 0;
+}
+.jm-title-line button {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  background: none;
+  color: var(--jm-red);
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+  padding: 5px 0;
+}
+.jm-home-map {
+  height: clamp(165px, 28dvh, 260px);
+  width: 100%;
+  border-radius: 13px;
+  overflow: hidden;
+  position: relative;
+  background: #e9ecec;
+}
+.jm-home-map .jf-moto-map-caption {
+  font-size: 9px;
+}
+.jm-ride-card {
+  width: 100%;
+  min-width: 0;
+  text-align: left;
+  padding: 13px 13px 12px;
+  border: 1px solid #e8e8ea;
+  border-radius: 13px;
+  background: #fff;
+  box-shadow: 0 2px 8px #00000008;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 9px;
+  color: var(--jm-text);
+}
+.jm-ride-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 7px;
+  align-items: center;
+  min-width: 0;
+}
+.jm-ride-head > strong {
+  font-size: 10px;
+  color: #6e717b;
+  letter-spacing: 0.03em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.jm-badge {
+  background: #fff3d9;
+  color: #9b6600;
+  border-radius: 20px;
+  padding: 4px 7px;
+  white-space: nowrap;
+  font-size: 9px;
+  font-weight: 750;
+  display: inline-block;
+}
+.jm-badge-active {
+  background: #e7efff;
+  color: #3166ac;
+}
+.jm-badge-success {
+  background: #dff5e9;
+  color: #128353;
+}
+.jm-badge-out {
+  margin: 4px 0 11px;
+}
+.jm-ride-client {
+  font-size: 14px;
+  font-weight: 780;
+  letter-spacing: -0.02em;
+  overflow-wrap: anywhere;
+}
+.jm-ride-address {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  font-size: 11px;
+  color: #777985;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.jm-ride-address svg {
+  flex: none;
+  margin-top: 1px;
+}
+.jm-ride-foot {
+  display: flex;
+  gap: 9px;
+  align-items: center;
+  justify-content: space-between;
+  border-top: 1px solid #f1f1f2;
+  margin-top: 6px;
+  padding-top: 9px;
+  color: #9899a0;
+  font-size: 10px;
+}
+.jm-ride-foot b {
+  color: #c91119;
+  font-size: 11px;
+  margin-left: auto;
+}
+.jm-empty {
+  padding: 24px 14px;
+  text-align: center;
+  border: 1px dashed #dedee1;
+  color: #8a8b92;
+  border-radius: 13px;
+  font-size: 12px;
+  margin: 10px 0;
+}
+.jm-error,
+.jm-warning {
+  background: #fff6e8;
+  color: #9c741f;
+  border-radius: 11px;
+  padding: 12px;
+  font-size: 11px;
+  line-height: 1.5;
+  margin: 14px 0;
+}
+.jm-error {
+  background: #ffeded;
+  color: #b91c1c;
+}
+.jm-bottom {
+  height: calc(60px + env(safe-area-inset-bottom));
+  padding: 5px 8px env(safe-area-inset-bottom);
+  flex: none;
+  background: #fff;
+  border-top: 1px solid #e8e8eb;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  align-items: center;
+  z-index: 5;
+}
+.jm-bottom button {
+  color: #85858c;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 3px 0;
+  border: 0;
+  background: transparent;
+  font-size: 9px;
+  min-width: 0;
+}
+.jm-bottom .jm-active {
+  color: var(--jm-red);
+  font-weight: 800;
+}
+.jm-screen-head {
+  margin: 4px 0 19px;
+}
+.jm-screen-head h1 {
+  font-size: clamp(20px, 5.4vw, 26px);
+  font-weight: 790;
+  letter-spacing: -0.045em;
+  margin: 4px 0 5px;
+  line-height: 1.22;
+}
+.jm-eyebrow {
+  font-size: 9px;
+  font-weight: 850;
+  color: var(--jm-red);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.jm-stats-inline {
+  margin: 16px 0 19px;
+}
+.jm-filter {
+  display: flex;
+  gap: 5px;
+  overflow-x: auto;
+  margin-bottom: 13px;
+  padding-bottom: 4px;
+  scrollbar-width: none;
+}
+.jm-filter button {
+  flex: none;
+  font-size: 10px;
+  font-weight: 650;
+  border: 1px solid #e5e5e7;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #fff;
+  color: #666;
+}
+.jm-filter .jm-selected {
+  background: #272729;
+  color: white;
+  border-color: #272729;
+}
+.jm-section-caption {
+  font-size: 9px;
+  color: #aaa;
+  margin-bottom: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.jm-panel {
+  background: #fff;
+  border: 1px solid #e9e9eb;
+  border-radius: 14px;
+  padding: 17px 15px;
+  margin: 12px 0;
+  min-width: 0;
+}
+.jm-panel > small {
+  display: block;
+  color: #90919b;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 8px;
+}
+.jm-panel h3 {
+  font-size: 15px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 3px 0 13px;
+  overflow-wrap: anywhere;
+}
+.jm-panel > p {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 11px;
+  padding: 8px 0;
+  border-bottom: 1px solid #f3f3f4;
+  line-height: 1.4;
+}
+.jm-panel > p:last-child {
+  border-bottom: 0;
+}
+.jm-panel > p b {
+  color: #85858d;
+  font-weight: 600;
+}
+.jm-panel > p span {
+  text-align: right;
+  max-width: 62%;
+  overflow-wrap: anywhere;
+  font-weight: 700;
+}
+.jm-panel .jm-notes {
+  display: block;
+  white-space: pre-wrap;
+  font-size: 11px;
+  color: #777;
+}
+.jm-panel a {
+  color: #c71920;
+  text-decoration: underline;
+  font-size: 12px;
+}
+.jm-action-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 12px 0;
+}
+.jm-button {
+  border: 0 !important;
+  border-radius: 11px;
+  background: var(--jm-red) !important;
+  color: #fff !important;
+  font-weight: 800;
+  font-size: 12px;
+  padding: 13px 9px;
+  min-height: 45px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  width: 100%;
+  line-height: 1.35;
+  text-align: center;
+}
+.jm-button-secondary {
+  border: 1px solid #dfdfe3 !important;
+  background: #fff !important;
+  color: #2a2a30 !important;
+}
+.jm-link {
+  border: 0;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: #c91b24;
+  font-size: 12px;
+  font-weight: 700;
+  width: 100%;
+  padding: 15px;
+}
+.jm-map-screen {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.jm-map-large {
+  flex: 1;
+  min-height: 190px;
+  position: relative;
+}
+.jm-map-large .jf-moto-map {
+  position: absolute;
+  inset: 0;
+}
+.jm-map-sheet {
+  flex: none;
+  background: #fff;
+  border-radius: 20px 20px 0 0;
+  position: relative;
+  margin-top: -12px;
+  padding: 18px clamp(14px, 5vw, 25px);
+  z-index: 3;
+  box-shadow: 0 -5px 20px #00000012;
+}
+.jm-map-sheet > small {
+  font-size: 9px;
+  color: #93939a;
+  font-weight: 800;
+}
+.jm-map-sheet h2 {
+  font-size: 17px;
+  font-weight: 800;
+  margin: 5px 0;
+}
+.jm-map-sheet > p {
+  display: flex;
+  gap: 7px;
+  font-size: 11px;
+  color: #787983;
+  margin: 7px 0;
+}
+.jm-map-sheet .jm-action-pair {
+  margin-bottom: 0;
+}
+.jm-map-sheet .jm-muted {
+  display: block;
+  color: #8a8a91;
+}
+.jm-photo-zone {
+  min-height: 240px;
+  border: 1.5px dashed #e3e3e7;
+  border-radius: 18px;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 8px;
+  padding: 22px;
+  position: relative;
+  overflow: hidden;
+  text-align: center;
+  color: var(--jm-red);
+  margin: 18px 0;
+}
+.jm-photo-zone b {
+  color: #333;
+  font-size: 13px;
+}
+.jm-photo-zone small {
+  color: #9c9ca3;
+  font-size: 11px;
+}
+.jm-photo-zone img {
+  max-height: 260px;
+  max-width: 100%;
+  object-fit: contain;
+}
+.jm-photo-zone input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+}
+.jm-success,
+.jm-state {
+  padding: 36px clamp(19px, 6vw, 32px) 22px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+  text-align: center;
+  justify-content: center;
+  gap: 13px;
+}
+.jm-success h1,
+.jm-state h1 {
+  font-size: 25px;
+  font-weight: 850;
+  margin: 0;
+}
+.jm-success p,
+.jm-state p {
+  color: #84848b;
+  font-size: 12px;
+  line-height: 1.6;
+  margin: 0;
+}
+.jm-success > small {
+  color: #138757;
+  font-size: 10px;
+  font-weight: 850;
+  letter-spacing: 0.1em;
+}
+.jm-success-icon {
+  height: 85px;
+  width: 85px;
+  border-radius: 50%;
+  background: #dff7ef;
+  color: #17a978;
+  display: grid;
+  place-items: center;
+}
+.jm-success .jm-panel,
+.jm-state .jm-panel {
+  width: 100%;
+  text-align: left;
+  margin: 20px 0;
+}
+.jm-state > .jm-button {
+  margin-top: 12px;
+}
+.jm-fixed-action {
+  padding: 10px 16px calc(18px + env(safe-area-inset-bottom));
+}
+.jm-red {
+  color: var(--jm-red);
+}
+.jm-chat-wrap {
+  background: #fff;
+}
+.jm-chat-wrap > div {
+  min-height: 100%;
+}
+.jm-notification {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  border: 0;
+  border-bottom: 1px solid #eeeef0;
+  padding: 14px 4px;
+  background: transparent;
+}
+.jm-notification > div {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.jm-notification b {
+  font-size: 12px;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+.jm-notification small {
+  font-size: 10px;
+  color: #aaa;
+}
+.jm-notification i {
+  width: 6px;
+  height: 6px;
+  background: #dc1c23;
+  border-radius: 100%;
+}
+.jm-notif-icon {
+  width: 35px;
+  height: 35px;
+  background: #fff0f0;
+  border-radius: 10px;
+  color: var(--jm-red);
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+.jm-unread {
+  background: #fffafa;
+}
+.jm-timeline-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 0;
+  border-bottom: 1px solid #efeff0;
+  text-align: left;
+  background: transparent;
+}
+.jm-timeline-item > div {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: 3px;
+}
+.jm-timeline-item b {
+  font-size: 12px;
+}
+.jm-timeline-item small {
+  font-size: 10px;
+  color: #93939a;
+}
+.jm-timeline-bullet {
+  width: 10px;
+  height: 10px;
+  background: #f9bb2b;
+  border-radius: 50%;
+  flex: none;
+}
+.jm-timeline-bullet.jm-done {
+  background: #2fb47e;
+}
+.jm-panel label {
+  font-size: 11px;
+  font-weight: 750;
+  display: block;
+  margin: 7px 0;
+}
+.jm-panel select,
+.jm-panel textarea {
+  width: 100%;
+  border: 1px solid #e3e3e7;
+  border-radius: 10px;
+  padding: 11px;
+  background: #f9f9fa;
+  color: #25252a;
+  font-size: 12px;
+  outline: 0;
+  margin: 4px 0 13px;
+}
+.jm-panel textarea {
+  resize: vertical;
+  min-height: 120px;
+}
+.jm-profile-hero {
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+  gap: 4px;
+  padding: 17px 0;
+}
+.jm-profile-hero > span {
+  width: 68px;
+  height: 68px;
+  background: #232329;
+  color: #fff;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 21px;
+  font-weight: 800;
+}
+.jm-profile-hero b {
+  font-size: 16px;
+}
+.jm-profile-hero small {
+  font-size: 11px;
+  color: #8f8f99;
+}
+.jm-settings {
+  padding: 0 15px;
+}
+.jm-settings button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 17px 1px;
+  border: 0;
+  border-bottom: 1px solid #f0f0f1;
+  font-size: 12px;
+  text-align: left;
+  background: none;
+}
+.jm-settings button:last-child {
+  border: 0;
+}
+.jm-drawer-overlay {
+  position: fixed;
+  inset: 0;
+  background: #0007;
+  z-index: 2000;
+  display: flex;
+}
+.jm-drawer {
+  background: #fff;
+  width: min(82vw, 326px);
+  height: 100%;
+  padding: calc(19px + env(safe-area-inset-top)) 15px calc(15px + env(safe-area-inset-bottom));
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 5px 0 20px #0002;
+}
+.jm-drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 26px;
+  position: relative;
+}
+.jm-drawer-head button {
+  position: absolute;
+  right: 0;
+  top: 0;
+  border: 0;
+  background: #f4f4f5;
+  border-radius: 8px;
+  width: 29px;
+  height: 29px;
+  display: grid;
+  place-items: center;
+}
+.jm-drawer > .jm-eyebrow {
+  padding: 0 11px;
+  margin-bottom: 11px;
+  color: #999;
+}
+.jm-drawer > button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 0;
+  background: transparent;
+  border-radius: 11px;
+  padding: 12px 11px;
+  text-align: left;
+  font-size: 12px;
+  color: #5d5d63;
+  width: 100%;
+  min-height: 44px;
+}
+.jm-drawer > button svg:last-child {
+  margin-left: auto;
+}
+.jm-drawer > .jm-drawer-selected {
+  background: #fff0f0;
+  color: #c9141a;
+  font-weight: 800;
+}
+.jm-drawer-footer {
+  margin-top: auto;
+  padding-top: 20px;
+  border-top: 1px solid #eee;
+  display: flex;
+  gap: 9px;
+  align-items: center;
+  min-width: 0;
+}
+.jm-avatar {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: #24242b;
+  color: white;
+  display: grid;
+  place-items: center;
+  font-weight: 800;
+  flex: none;
+}
+.jm-drawer-footer > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+}
+.jm-drawer-footer b {
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.jm-drawer-footer small {
+  font-size: 10px;
+  color: #999;
+}
+.jm-drawer-footer button {
+  border: 0;
+  background: none;
+  color: #555;
+  padding: 7px;
+}
+.jm-offline-alert {
+  height: 28px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  background: #fff1d8;
+  color: #7d5b10;
+  font-weight: 700;
+  font-size: 10px;
+  z-index: 20;
+}
+@media (max-width: 350px) {
+  .jm-tile b {
+    font-size: 14px;
+  }
+  .jm-top {
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+  .jm-home-header {
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+  .jm-filter button {
+    padding: 7px 8px;
+  }
+  .jm-action-pair {
+    gap: 5px;
+  }
+  .jm-button {
+    font-size: 11px;
+    padding-left: 5px;
+    padding-right: 5px;
+  }
+}
+@media (max-height: 620px) {
+  .jm-map-large {
+    min-height: 140px;
+  }
+  .jm-map-sheet {
+    padding-top: 12px;
+    padding-bottom: 12px;
+  }
+  .jm-home-map {
+    height: 165px;
+  }
+  .jm-success,
+  .jm-state {
+    justify-content: flex-start;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .jm-app * {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -60,3 +60,6 @@ exports.motoboyDailySummary = require('./motoboyDailySummary').motoboyDailySumma
 
 exports.deleteReferenceDiagram = require('./referenceDiagramDeletion.cjs').deleteReferenceDiagram;
 exports.createCounterOrderTask = require('./counterOrderTask.cjs').createCounterOrderTask;
+
+// Planejamento Google Maps (restrito a gestores de motoboys)
+exports.googleRoutePlanner = require('./motoboyRoutes.cjs').googleRoutePlanner;
