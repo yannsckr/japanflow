@@ -1,12 +1,27 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { LocateFixed, MapPin } from 'lucide-react';
 import type { Ride } from './useMotoboyRides';
+import { subscribeNativePosition } from './nativeLocation';
 
 // API JavaScript do Google Maps: chave pública RESTRITA a Maps JavaScript API e origens permitidas.
 // Nunca utilizar GOOGLE_MAPS_SERVER_KEY no navegador ou no APK.
 type Geo = { lat: number; lng: number };
 type GoogleMap = { setCenter: (point: Geo) => void; setZoom: (zoom: number) => void };
 type GoogleMarker = { setMap: (map: GoogleMap | null) => void };
+type GoogleDirectionsRenderer = {
+  setMap: (map: GoogleMap | null) => void;
+  setDirections: (directions: unknown) => void;
+};
+type GoogleDirectionsService = {
+  route: (
+    request: {
+      origin: Geo | string;
+      destination: Geo | string;
+      travelMode: string;
+    },
+    callback: (result: unknown, status: string) => void
+  ) => void;
+};
 type GeocodeResult = { geometry: { location: { lat: () => number; lng: () => number } } };
 type GoogleGeocoder = {
   geocode: (request: { placeId: string }) => Promise<{ results: GeocodeResult[] }>;
@@ -15,6 +30,8 @@ type GoogleMaps = {
   Map: new (element: HTMLElement, opts: Record<string, unknown>) => GoogleMap;
   Marker: new (opts: Record<string, unknown>) => GoogleMarker;
   Geocoder: new () => GoogleGeocoder;
+  DirectionsRenderer: new (options: Record<string, unknown>) => GoogleDirectionsRenderer;
+  DirectionsService: new () => GoogleDirectionsService;
 };
 declare global {
   interface Window {
@@ -48,6 +65,7 @@ export default function MotoboyMap({ rides = [] }: { rides?: Ride[] }) {
   const container = useRef<HTMLDivElement>(null);
   const instance = useRef<GoogleMap | null>(null);
   const markers = useRef<GoogleMarker[]>([]);
+  const directionLayer = useRef<GoogleDirectionsRenderer | null>(null);
   const [error, setError] = useState('');
   const [loaded, setLoaded] = useState(false);
   const [placeLocations, setPlaceLocations] = useState<Record<string, Geo>>({});
@@ -89,6 +107,8 @@ export default function MotoboyMap({ rides = [] }: { rides?: Ride[] }) {
       });
     return () => {
       disposed = true;
+      directionLayer.current?.setMap(null);
+      directionLayer.current = null;
       markers.current.forEach((m) => m.setMap(null));
       markers.current = [];
       instance.current = null;
@@ -184,6 +204,56 @@ export default function MotoboyMap({ rides = [] }: { rides?: Ride[] }) {
       );
     }
   }, [rides, position, placeLocations, resolvedOrigin, origin.lat, origin.lng, hasOrigin, loaded]);
+  // Usar posição nativa do GPS se um watcher estiver ativo no Android.
+  useEffect(() => subscribeNativePosition(setPosition), []);
+  // Traçado visual da próxima entrega. A navegação passo a passo abre no Google Maps.
+  useEffect(() => {
+    const maps = window.google?.maps;
+    if (!loaded || !maps?.DirectionsService || !maps?.DirectionsRenderer || !instance.current)
+      return;
+    directionLayer.current?.setMap(null);
+    directionLayer.current = null;
+    const current = rides.find((ride) => ride.status === 'accepted') || rides[0];
+    if (!current) return;
+    const destination: Geo | string =
+      current.destinationLat != null && current.destinationLng != null
+        ? { lat: current.destinationLat, lng: current.destinationLng }
+        : current.destinationPlaceId
+          ? ({ placeId: current.destinationPlaceId } as unknown as Geo)
+          : current.location;
+    if (!destination || (typeof destination === 'string' && !destination.trim())) return;
+    const start: Geo | null = position || (hasOrigin ? origin : resolvedOrigin);
+    if (!start) {
+      setError('Autorize o GPS ou configure a localização da loja para calcular o trajeto.');
+      return;
+    }
+    const renderer = new maps.DirectionsRenderer({
+      suppressMarkers: true,
+      preserveViewport: false,
+    });
+    renderer.setMap(instance.current);
+    directionLayer.current = renderer;
+    let canceled = false;
+    new maps.DirectionsService().route(
+      { origin: start, destination, travelMode: 'DRIVING' },
+      (result, status) => {
+        if (canceled) return;
+        if (status === 'OK' && result) {
+          renderer.setDirections(result);
+          setError('');
+        } else {
+          setError(
+            `Não foi possível desenhar o trajeto (${status}). Verifique o destino e a API Routes/Directions.`
+          );
+        }
+      }
+    );
+    return () => {
+      canceled = true;
+      renderer.setMap(null);
+      if (directionLayer.current === renderer) directionLayer.current = null;
+    };
+  }, [loaded, rides, position, hasOrigin, origin, resolvedOrigin]);
   const locate = () => {
     if (!navigator.geolocation) {
       setError('GPS não disponível');

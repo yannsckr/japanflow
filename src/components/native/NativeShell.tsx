@@ -59,7 +59,7 @@ export default function NativeShell({ platform }: { platform: NativePlatform }) 
 
   const nav = (
     <nav
-      aria-label="Navegação COSMOS"
+      aria-label="Navegação JapanFlow"
       className={
         platform === 'desktop' ? 'flex flex-col gap-1' : 'flex items-center gap-1 overflow-x-auto'
       }
@@ -86,7 +86,7 @@ export default function NativeShell({ platform }: { platform: NativePlatform }) 
           <aside className="sticky top-0 flex h-screen w-64 shrink-0 flex-col gap-6 bg-slate-950 p-5 text-white">
             <div>
               <p className="text-xl font-bold tracking-tight">JapanFlow</p>
-              <p className="text-xs tracking-widest text-cyan-400">COSMOS · DESKTOP</p>
+              <p className="text-xs tracking-widest text-cyan-400">JapanFlow · DESKTOP</p>
             </div>
             {nav}
             <div className="mt-auto flex items-center justify-between gap-2 border-t border-slate-800 pt-4">
@@ -108,7 +108,7 @@ export default function NativeShell({ platform }: { platform: NativePlatform }) 
           <header className="sticky top-0 z-20 flex h-14 items-center justify-between border-b bg-background/95 px-4 backdrop-blur sm:px-6">
             <span className="flex items-center gap-2 text-sm font-semibold">
               {platform === 'desktop' ? <Monitor size={17} /> : <Smartphone size={17} />} JapanFlow
-              COSMOS
+              JapanFlow
             </span>
             <span className="truncate text-xs text-muted-foreground">{currentUser.name}</span>
             {platform === 'android' && (

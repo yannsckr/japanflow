@@ -656,9 +656,24 @@
 }
 .jm-chat-wrap {
   background: #fff;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
 }
 .jm-chat-wrap > div {
-  min-height: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+}
+.jm-header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+}
+.jm-top:has(.jm-header-actions .jm-icon:nth-child(2)) {
+  grid-template-columns: 40px minmax(0, 1fr) 82px;
 }
 .jm-notification {
   width: 100%;

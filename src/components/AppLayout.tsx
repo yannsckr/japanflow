@@ -46,7 +46,7 @@ const pageTitles: Record<string, string> = {
   '/admin/monitor': 'Monitoria',
   '/gas': 'Gestão de Análise do Sistema',
   '/backlog': 'TI',
-  '/ti/cosmos-releases': 'COSMOS Releases',
+  '/ti/cosmos-releases': 'JapanFlow Releases',
   '/board': 'Meu Quadro',
   '/chat': 'Chat',
   '/referencias': 'Referências',

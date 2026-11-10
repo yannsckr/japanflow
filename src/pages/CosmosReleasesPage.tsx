@@ -110,11 +110,11 @@ export default function CosmosReleasesPage() {
       <header className="flex flex-wrap items-start justify-between gap-4 border-b pb-6">
         <div className="space-y-2">
           <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[.15em] text-muted-foreground">
-            <GitBranch size={15} /> TI / COSMOS
+            <GitBranch size={15} /> TI / JapanFlow
           </div>
           <h1 className="text-3xl font-semibold tracking-tight">Releases</h1>
           <p className="text-sm text-muted-foreground">
-            Histórico de versões, notas de lançamento e distribuição do COSMOS Android.
+            Histórico de versões, notas de lançamento e distribuição do JapanFlow Android.
           </p>
         </div>
         <Button onClick={() => setShowForm(!showForm)}>

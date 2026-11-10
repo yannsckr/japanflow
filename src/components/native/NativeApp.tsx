@@ -28,7 +28,7 @@ export default function NativeApp({ platform }: { platform: NativePlatform }) {
           <AppProvider>
             <Suspense
               fallback={
-                <div className="p-8 text-sm text-muted-foreground">Carregando COSMOS...</div>
+                <div className="p-8 text-sm text-muted-foreground">Carregando JapanFlow...</div>
               }
             >
               <Routes>

@@ -9,7 +9,7 @@ export default function CosmosUpdatePrompt() {
   const [dismissed, setDismissed] = useState<string | null>(null);
   useEffect(
     () =>
-      subscribeCosmosReleases(setItems, (e) => console.warn('COSMOS releases indisponíveis', e)),
+      subscribeCosmosReleases(setItems, (e) => console.warn('JapanFlow releases indisponíveis', e)),
     []
   );
   const latest = useMemo(
@@ -38,7 +38,7 @@ export default function CosmosUpdatePrompt() {
     <div
       role="dialog"
       aria-modal="true"
-      aria-label="Atualização COSMOS"
+      aria-label="Atualização JapanFlow"
       style={{
         position: 'fixed',
         inset: 0,
@@ -70,7 +70,7 @@ export default function CosmosUpdatePrompt() {
           }}
         >
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontWeight: 700 }}>
-            <Sparkles size={20} /> COSMOS {latest.version}
+            <Sparkles size={20} /> JapanFlow {latest.version}
           </div>
           {!latest.mandatory && (
             <button aria-label="Fechar" onClick={() => setDismissed(latest.id)}>

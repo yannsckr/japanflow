@@ -54,7 +54,6 @@ type Screen =
   | 'profile'
   | 'offline'
   | 'gps';
-const money = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const date = (s: string | null) => (s ? new Date(s).toLocaleDateString('pt-BR') : '—');
 const status = (r: Ride) =>
   r.status === 'accepted'
@@ -77,12 +76,14 @@ function Top({
   title,
   back,
   onBell,
+  onGps,
   menu = false,
   onHome,
 }: {
   title?: string;
   back?: () => void;
   onBell?: () => void;
+  onGps?: () => void;
   menu?: boolean;
   onHome?: () => void;
 }) {
@@ -109,13 +110,26 @@ function Top({
           <Brand small />
         </button>
       )}
-      {onBell ? (
-        <button type="button" className="jm-icon" onClick={onBell} aria-label="Notificações">
-          <Bell size={20} />
-        </button>
-      ) : (
-        <span className="jm-top-placeholder" />
-      )}
+      <div className="jm-header-actions">
+        {onGps && (
+          <button
+            type="button"
+            className="jm-icon"
+            onClick={onGps}
+            aria-label="Permissões de GPS"
+            title="GPS"
+          >
+            <MapPin size={19} />
+          </button>
+        )}
+        {onBell ? (
+          <button type="button" className="jm-icon" onClick={onBell} aria-label="Notificações">
+            <Bell size={20} />
+          </button>
+        ) : (
+          <span className="jm-top-placeholder" />
+        )}
+      </div>
     </header>
   );
 }
@@ -158,7 +172,7 @@ function Card({ ride, onClick }: { ride: Ride; onClick: () => void }) {
         {ride.location || 'Endereço não informado'}
       </span>
       <span className="jm-ride-foot">
-        {ride.scheduledFor ? date(ride.scheduledFor) : 'Designada'} <b>{money(ride.rideValue)}</b>
+        {ride.scheduledFor ? date(ride.scheduledFor) : 'Designada'}
         <ChevronRight size={16} />
       </span>
     </button>
@@ -342,11 +356,12 @@ export default function MotoboyExperience({ initialScreen = 'home' }: { initialS
       ))}
     </nav>
   );
-  const top = (title?: string) => (
+  const top = (title?: string, withGps = false) => (
     <Top
       title={title}
       back={screen === 'home' ? undefined : () => go('home')}
       onBell={() => go('notifications')}
+      onGps={withGps ? () => go('gps') : undefined}
       onHome={() => go('home')}
     />
   );
@@ -519,7 +534,7 @@ export default function MotoboyExperience({ initialScreen = 'home' }: { initialS
                       onClick={() =>
                         selected.location
                           ? window.open(
-                              `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(selected.location)}`,
+                              `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(selected.location)}&travelmode=driving&dir_action=navigate`,
                               '_blank',
                               'noopener,noreferrer'
                             )
@@ -545,10 +560,6 @@ export default function MotoboyExperience({ initialScreen = 'home' }: { initialS
                     <span>{status(selected)}</span>
                   </p>
                   <p>
-                    <b>Valor</b>
-                    <span>{money(selected.rideValue)}</span>
-                  </p>
-                  <p>
                     <b>Designada</b>
                     <span>{date(selected.createdAt)}</span>
                   </p>
@@ -557,13 +568,14 @@ export default function MotoboyExperience({ initialScreen = 'home' }: { initialS
                 {selected.status === 'pending' && (
                   <Button
                     disabled={busy || !online}
-                    onClick={() =>
-                      execute(
+                    onClick={() => {
+                      setSelectedId(selected.id);
+                      void execute(
                         () => startRide(selected.id, currentUser!.id),
                         'Corrida iniciada',
                         'map'
-                      )
-                    }
+                      );
+                    }}
                   >
                     <Navigation size={18} /> {busy ? 'Iniciando…' : 'Iniciar corrida'}
                   </Button>
@@ -604,7 +616,15 @@ export default function MotoboyExperience({ initialScreen = 'home' }: { initialS
           {top('Rota de entrega')}
           <div className="jm-scroll jm-map-screen">
             <div className="jm-map-large">
-              <MotoboyMap rides={rides.route} />
+              <MotoboyMap
+                rides={
+                  selected && selected.status === 'accepted'
+                    ? [selected]
+                    : rides.active.length
+                      ? rides.active
+                      : rides.route
+                }
+              />
             </div>
             <div
               className={`jm-map-sheet ${mapSheetCollapsed ? 'jm-map-sheet-collapsed' : ''}`}
@@ -664,7 +684,7 @@ export default function MotoboyExperience({ initialScreen = 'home' }: { initialS
                         const r = selected || rides.active[0] || rides.pending[0];
                         if (r?.location)
                           window.open(
-                            `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(r.location)}`,
+                            `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(r.location)}&travelmode=driving&dir_action=navigate`,
                             '_blank',
                             'noopener,noreferrer'
                           );
@@ -746,10 +766,6 @@ export default function MotoboyExperience({ initialScreen = 'home' }: { initialS
               <p>
                 <b>Cliente</b>
                 <span>{selected?.clientName || '—'}</span>
-              </p>
-              <p>
-                <b>Valor</b>
-                <span>{money(selected?.rideValue || 0)}</span>
               </p>
             </div>
           </div>
@@ -931,7 +947,7 @@ export default function MotoboyExperience({ initialScreen = 'home' }: { initialS
       )}
       {screen === 'profile' && (
         <>
-          {top()}
+          {top(undefined, true)}
           <div className="jm-scroll jm-page">
             <HeaderText eyebrow="MINHA CONTA" title="Meu perfil" />
             <div className="jm-profile-hero">
@@ -955,7 +971,6 @@ export default function MotoboyExperience({ initialScreen = 'home' }: { initialS
                 [
                   { label: 'Minha jornada', to: 'journey' },
                   { label: 'Histórico de corridas', to: 'history' },
-                  { label: 'Permissões GPS', to: 'gps' },
                   { label: 'Notificações', to: 'notifications' },
                 ] as const
               ).map((x) => (

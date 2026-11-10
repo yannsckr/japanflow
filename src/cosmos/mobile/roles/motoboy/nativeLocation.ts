@@ -22,6 +22,16 @@ type LocationPlugin = {
   removeWatcher(options: { id: string }): Promise<void>;
 };
 const NativeLocation = registerPlugin<LocationPlugin>('BackgroundGeolocation');
+type PositionListener = (point: { lat: number; lng: number }) => void;
+const listeners = new Set<PositionListener>();
+let lastPosition: { lat: number; lng: number } | null = null;
+export function subscribeNativePosition(listener: PositionListener): () => void {
+  listeners.add(listener);
+  if (lastPosition) listener(lastPosition);
+  return () => {
+    listeners.delete(listener);
+  };
+}
 let watcherId: string | null = null;
 let watcherStarting: Promise<string> | null = null;
 
@@ -47,7 +57,11 @@ export async function startLocationWatcher(
         onError(error.message || 'Falha ao receber localização');
         return;
       }
-      if (position) onLocation(position);
+      if (position) {
+        lastPosition = { lat: position.latitude, lng: position.longitude };
+        listeners.forEach((listener) => listener(lastPosition!));
+        onLocation(position);
+      }
     }
   );
   try {
