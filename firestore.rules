@@ -724,9 +724,40 @@ service cloud.firestore {
       allow create, update, delete: if false;
     }
 
+    // Releases COSMOS: leitura para usuarios ativos; publicacao restrita a TI autorizada.
+    function canPublishCosmos() {
+      return canManageBacklog();
+    }
+
+    match /cosmos_releases/{releaseId} {
+      allow get, list: if isActive();
+      allow create: if canPublishCosmos()
+        && request.resource.data.keys().hasOnly(['version','title','notes','channel','downloadUrl','mandatory','status','createdBy','createdAt','publishedAt'])
+        && request.resource.data.keys().hasAll(['version','title','notes','channel','downloadUrl','mandatory','status','createdBy','createdAt','publishedAt'])
+        && request.resource.data.version is string
+        && request.resource.data.version.matches('^[0-9]+[.][0-9]+[.][0-9]+(-[a-zA-Z0-9.-]+)?$')
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0 && request.resource.data.title.size() <= 160
+        && request.resource.data.notes is string
+        && request.resource.data.notes.size() > 0 && request.resource.data.notes.size() <= 10000
+        && request.resource.data.channel in ['stable', 'beta']
+        && request.resource.data.downloadUrl is string
+        && (request.resource.data.downloadUrl == '' || request.resource.data.downloadUrl.matches('^https://[^ ]+$'))
+        && request.resource.data.mandatory is bool
+        && request.resource.data.status == 'published'
+        && request.resource.data.createdBy == currentUserId()
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.publishedAt == request.time;
+      allow update: if canPublishCosmos()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['mandatory'])
+        && request.resource.data.mandatory is bool;
+      allow delete: if false;
+    }
+
     // Colecoes operacionais nao cobertas pelas regras especificas.
     match /{collection}/{document=**} {
       allow read, write: if isActive()
+        && collection != 'cosmos_releases'
         && collection != 'site_warranty_receipts'
         && collection != 'warranty_claims'
         && collection != 'warranty_updates'

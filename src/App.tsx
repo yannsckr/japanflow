@@ -31,6 +31,7 @@ const ChatHistoryPage = lazy(() => import('@/pages/ChatHistoryPage'));
 const GASPage = lazy(() => import('@/pages/GASPage'));
 const SentinelPage = lazy(() => import('@/pages/SentinelPage'));
 const BacklogPage = lazy(() => import('@/pages/BacklogPage'));
+const CosmosReleasesPage = lazy(() => import('@/pages/CosmosReleasesPage'));
 const NotFound = lazy(() => import('@/pages/NotFound'));
 const queryClient = new QueryClient();
 const CarregandoPagina = () => (
@@ -74,6 +75,7 @@ const App = () => (
                 <Route path="/gas" element={<GASPage />} />
                 <Route path="/sentinel" element={<SentinelPage />} />
                 <Route path="/backlog" element={<BacklogPage />} />
+                <Route path="/ti/cosmos-releases" element={<CosmosReleasesPage />} />
               </Route>
               <Route path="/" element={<Navigate to="/login" replace />} />
               <Route path="*" element={<NotFound />} />
