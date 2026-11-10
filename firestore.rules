@@ -749,9 +749,14 @@ service cloud.firestore {
         && request.resource.data.createdAt == request.time
         && request.resource.data.publishedAt == request.time;
       allow update: if canPublishCosmos()
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['mandatory'])
-        && request.resource.data.mandatory is bool;
-      allow delete: if false;
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['mandatory','title','notes','channel'])
+        && request.resource.data.mandatory is bool
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0 && request.resource.data.title.size() <= 160
+        && request.resource.data.notes is string
+        && request.resource.data.notes.size() > 0 && request.resource.data.notes.size() <= 10000
+        && request.resource.data.channel in ['stable', 'beta'];
+      allow delete: if canPublishCosmos();
     }
 
     // Colecoes operacionais nao cobertas pelas regras especificas.
