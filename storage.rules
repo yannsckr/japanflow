@@ -188,6 +188,41 @@ service firebase.storage {
       allow delete: if salesAccess();
     }
 
+    // COSMOS_APK_UPLOAD_V1: publicacao restrita, sem substituicao de APKs.
+    function canPublishCosmosApk() {
+      return activeUser()
+        && firestore.exists(/databases/(default)/documents/users/$(currentUserId()))
+        && firestore.get(/databases/(default)/documents/users/$(currentUserId())).data.active != false
+        && firestore.get(/databases/(default)/documents/users/$(currentUserId())).data.username in ['ryan', 'japan-ti'];
+    }
+
+    // Caminho novo da marca JapanFlow. Caminho antigo preservado para compatibilidade.
+    match /japanflow/releases/{userId}/{fileName} {
+      allow read: if activeUser();
+      allow create: if canPublishCosmosApk()
+        && currentUserId() == userId
+        && resource == null
+        && fileName.matches('^[0-9a-f-]{36}[.]apk$')
+        && request.resource != null
+        && request.resource.size > 0
+        && request.resource.size <= 150 * 1024 * 1024
+        && request.resource.contentType == 'application/vnd.android.package-archive';
+      allow update, delete: if false;
+    }
+
+    match /cosmos/releases/{userId}/{fileName} {
+      allow read: if activeUser();
+      allow create: if canPublishCosmosApk()
+        && currentUserId() == userId
+        && resource == null
+        && fileName.matches('^[0-9a-f-]{36}[.]apk$')
+        && request.resource != null
+        && request.resource.size > 0
+        && request.resource.size <= 150 * 1024 * 1024
+        && request.resource.contentType == 'application/vnd.android.package-archive';
+      allow update, delete: if false;
+    }
+
     // ========================================
     // BLOQUEIO PADRÃO
     // ========================================

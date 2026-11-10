@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { addDoc, doc, serverTimestamp, updateDoc } from 'firebase/firestore';
+import { getDownloadURL, ref, uploadBytesResumable } from 'firebase/storage';
 import {
   ArrowDownToLine,
   CheckCircle2,
@@ -11,7 +12,7 @@ import {
   Tag,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { db } from '@/lib/firebase';
+import { db, storage } from '@/lib/firebase';
 import { useApp } from '@/contexts/AppContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -39,6 +40,9 @@ export default function CosmosReleasesPage() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(empty);
+  // COSMOS_APK_UPLOAD_V1
+  const [apkFile, setApkFile] = useState<File | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [filter, setFilter] = useState<'all' | 'stable' | 'beta'>('all');
   useEffect(() => {
@@ -74,12 +78,43 @@ export default function CosmosReleasesPage() {
     if (!form.title.trim() || !form.notes.trim())
       return toast.error('Informe título e notas da versão');
     if (!validHttpsUrl(form.downloadUrl)) return toast.error('O download precisa usar HTTPS');
+    if (apkFile && form.downloadUrl.trim())
+      return toast.error('Escolha um APK ou informe um link, não ambos');
+    if (
+      apkFile &&
+      (!/\.apk$/i.test(apkFile.name) || apkFile.size <= 0 || apkFile.size > 150 * 1024 * 1024)
+    )
+      return toast.error('Selecione um APK de até 150 MB');
     if (releases.some((r) => r.version === form.version && r.channel === form.channel))
       return toast.error('Essa versão já existe nesse canal');
     setSaving(true);
     try {
+      let downloadUrl = form.downloadUrl.trim();
+      if (apkFile) {
+        // Arquivo com identificador aleatorio: nao permite sobrescrita no Storage.
+        const fileName = `${crypto.randomUUID()}.apk`;
+        const storagePath = `japanflow/releases/${authenticatedUser?.id}/${fileName}`;
+        const fileRef = ref(storage, storagePath);
+        const task = uploadBytesResumable(fileRef, apkFile, {
+          contentType: 'application/vnd.android.package-archive',
+          customMetadata: { version: form.version, channel: form.channel },
+        });
+        await new Promise<void>((resolve, reject) => {
+          task.on(
+            'state_changed',
+            (snapshot) =>
+              setUploadProgress(
+                Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100)
+              ),
+            reject,
+            resolve
+          );
+        });
+        downloadUrl = await getDownloadURL(task.snapshot.ref);
+      }
       await addDoc(releasesCollection(), {
         ...form,
+        downloadUrl,
         title: form.title.trim(),
         notes: form.notes.trim(),
         downloadUrl: form.downloadUrl.trim(),
@@ -91,10 +126,12 @@ export default function CosmosReleasesPage() {
       toast.success('Release publicado');
       setShowForm(false);
       setForm(empty);
+      setApkFile(null);
     } catch (e) {
       toast.error('Não foi possível publicar. Verifique permissões do Firebase.');
       console.error(e);
     } finally {
+      setUploadProgress(null);
       setSaving(false);
     }
   };
@@ -110,11 +147,11 @@ export default function CosmosReleasesPage() {
       <header className="flex flex-wrap items-start justify-between gap-4 border-b pb-6">
         <div className="space-y-2">
           <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[.15em] text-muted-foreground">
-            <GitBranch size={15} /> TI / COSMOS
+            <GitBranch size={15} /> TI / JapanFlow
           </div>
           <h1 className="text-3xl font-semibold tracking-tight">Releases</h1>
           <p className="text-sm text-muted-foreground">
-            Histórico de versões, notas de lançamento e distribuição do COSMOS Android.
+            Histórico de versões, notas de lançamento e distribuição do JapanFlow Android.
           </p>
         </div>
         <Button onClick={() => setShowForm(!showForm)}>
@@ -171,6 +208,24 @@ export default function CosmosReleasesPage() {
               required
             />
           </label>
+          <label className="block space-y-1 text-sm">
+            Enviar APK assinado diretamente (até 150 MB)
+            <Input
+              type="file"
+              accept=".apk,application/vnd.android.package-archive"
+              disabled={saving}
+              onChange={(e) => setApkFile(e.target.files?.[0] ?? null)}
+            />
+          </label>
+          {uploadProgress !== null && (
+            <div className="space-y-1" aria-live="polite">
+              <p className="text-xs text-muted-foreground">Enviando APK: {uploadProgress}%</p>
+              <progress className="w-full" max={100} value={uploadProgress} />
+            </div>
+          )}
+          <p className="text-xs text-muted-foreground">
+            Ou use um endereço HTTPS externo abaixo. O arquivo enviado gera automaticamente o link.
+          </p>
           <label className="block space-y-1 text-sm">
             URL HTTPS do APK assinado (opcional)
             <Input

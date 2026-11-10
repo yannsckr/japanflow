@@ -516,19 +516,19 @@ const AppSidebar = ({
               )) && (
               <button
                 type="button"
-                onClick={() => handleNav('/ti/cosmos-releases')}
-                title="Releases COSMOS"
-                aria-current={location.pathname === '/ti/cosmos-releases' ? 'page' : undefined}
+                onClick={() => handleNav('/ti/japanflow-releases')}
+                title="Releases JapanFlow"
+                aria-current={location.pathname === '/ti/japanflow-releases' ? 'page' : undefined}
                 className={cn(
                   'jf-interactive mb-2 flex h-10 w-full items-center rounded-xl text-sm font-medium',
                   collapsed ? 'justify-center' : 'gap-3 px-3',
-                  location.pathname === '/ti/cosmos-releases'
+                  location.pathname === '/ti/japanflow-releases'
                     ? 'bg-sidebar-primary text-sidebar-primary-foreground'
                     : 'text-sidebar-foreground hover:bg-sidebar-accent'
                 )}
               >
                 <Zap className="h-5 w-5 shrink-0" />
-                {!collapsed && <span>Releases COSMOS</span>}
+                {!collapsed && <span>Releases JapanFlow</span>}
               </button>
             )}
             {primaryItems.map(renderNavItem)}

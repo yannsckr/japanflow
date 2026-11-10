@@ -75,6 +75,7 @@ const App = () => (
                 <Route path="/gas" element={<GASPage />} />
                 <Route path="/sentinel" element={<SentinelPage />} />
                 <Route path="/backlog" element={<BacklogPage />} />
+                <Route path="/ti/japanflow-releases" element={<CosmosReleasesPage />} />
                 <Route path="/ti/cosmos-releases" element={<CosmosReleasesPage />} />
               </Route>
               <Route path="/" element={<Navigate to="/login" replace />} />

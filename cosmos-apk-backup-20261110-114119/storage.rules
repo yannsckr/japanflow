@@ -1,0 +1,199 @@
+
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // ========================================
+    // AUTENTICAÇÃO E IDENTIDADE
+    // ========================================
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function linkPath() {
+      return /databases/(default)/documents/auth_links/$(request.auth.uid);
+    }
+
+    function activeUser() {
+      return signedIn()
+        && firestore.exists(linkPath())
+        && firestore.get(linkPath()).data.active != false;
+    }
+
+    function currentUserId() {
+      return firestore.get(linkPath()).data.user_id;
+    }
+
+    function adminUser() {
+      return activeUser()
+        && firestore.get(linkPath()).data.role == 'admin';
+    }
+
+    // ========================================
+    // VALIDAÇÃO DE UPLOADS
+    // ========================================
+
+    function validUpload() {
+      return request.resource != null
+        && request.resource.size > 0
+        && request.resource.size <= 15 * 1024 * 1024
+        && (
+          request.resource.contentType.matches('image/.*')
+          || request.resource.contentType == 'application/pdf'
+          || request.resource.contentType == 'application/octet-stream'
+        );
+    }
+
+    // ========================================
+    // AUTORIZAÇÃO DE CHAT PRIVADO
+    // ========================================
+
+    function isParticipant(userA, userB) {
+      return activeUser()
+        && (
+          currentUserId() == userA
+          || currentUserId() == userB
+        );
+    }
+
+    match /attachments/chat/private/{userA}/{userB}/{filePath=**} {
+      allow read: if isParticipant(userA, userB);
+
+      allow create: if isParticipant(userA, userB)
+        && resource == null
+        && validUpload();
+
+      allow update: if false;
+
+      allow delete: if adminUser();
+    }
+
+    // Arquivos históricos sem participantes identificados:
+    // bloqueados até conclusão da migração.
+    match /attachments/chat/private/{fileName} {
+      allow read, write: if false;
+    }
+
+    // ========================================
+    // AUTORIZAÇÃO DE CHAT EM GRUPO
+    // ========================================
+
+    function groupPath(groupId) {
+      return /databases/(default)/documents/custom_groups/$(groupId);
+    }
+
+    function isGroupMember(groupId) {
+      return activeUser()
+        && firestore.exists(groupPath(groupId))
+        && currentUserId() in
+          firestore.get(groupPath(groupId)).data.participant_ids;
+    }
+
+    match /attachments/chat/groups/{groupId}/{filePath=**} {
+
+      // Apenas membros podem acessar anexos.
+      allow read: if isGroupMember(groupId);
+
+      // Apenas membros podem enviar arquivos válidos.
+      allow create: if isGroupMember(groupId)
+        && resource == null
+        && validUpload();
+
+      // Não permitir substituição de arquivos.
+      allow update: if false;
+
+      // Exclusão administrativa.
+      allow delete: if adminUser();
+    }
+
+    // ========================================
+    // ANEXOS OPERACIONAIS DO JAPANFLOW
+    // ========================================
+
+    // Vídeos de avisos: mesmos usuários ativos, apenas na pasta de avisos.
+    // Arquivos gerais continuam obedecendo a validUpload().
+    match /attachments/announcements/{filePath=**} {
+      allow read: if activeUser();
+      allow create: if activeUser()
+        && resource == null
+        && request.resource != null
+        && request.resource.size > 0
+        && request.resource.size <= 25 * 1024 * 1024
+        && request.resource.contentType.matches('video/.*');
+      allow update: if false;
+      allow delete: if adminUser();
+    }
+
+    match /attachments/{folder}/{filePath=**} {
+      allow read: if activeUser()
+        && folder != 'chat';
+
+      allow create: if activeUser()
+        && folder != 'chat'
+        && resource == null
+        && validUpload();
+
+      allow update: if false;
+
+      allow delete: if adminUser()
+        && folder != 'chat';
+    }
+
+    // Fotos internas do catálogo: acesso exclusivo a funcionários de Vendas.
+    function salesAccess() {
+      return activeUser()
+        && firestore.exists(/databases/(default)/documents/users/$(currentUserId()))
+        && firestore.get(/databases/(default)/documents/users/$(currentUserId())).data.active != false
+        && firestore.get(/databases/(default)/documents/users/$(currentUserId())).data.sectors.hasAny(['vendas']);
+    }
+
+    // R3D.3: uploads de conjuntos GLB; leitura só para Vendas.
+    match /reference_3d/{userId}/{fileName} {
+      allow read: if salesAccess();
+      allow create: if salesAccess() && currentUserId() == userId
+        && resource == null && request.resource != null
+        && fileName.matches('^[A-Za-z0-9_-]+[.]glb$')
+        && request.resource.size > 0 && request.resource.size <= 30 * 1024 * 1024
+        && request.resource.contentType == 'model/gltf-binary';
+      allow update: if false;
+      allow delete: if salesAccess() && currentUserId() == userId;
+    }
+
+    // REF-DIAGRAMS-V1 - somente admin publica imagens técnicas
+    function canReadDiagramImages() {
+      return activeUser()
+        && firestore.exists(/databases/(default)/documents/users/$(currentUserId()))
+        && firestore.get(/databases/(default)/documents/users/$(currentUserId())).data.active != false
+        && (adminUser() || firestore.get(/databases/(default)/documents/users/$(currentUserId())).data.sectors.hasAny(['vendas']));
+    }
+    match /reference_diagrams/{userId}/{fileName} {
+      allow read: if canReadDiagramImages();
+      allow create: if canReadDiagramImages() && adminUser() && currentUserId() == userId
+        && resource == null && request.resource != null
+        && request.resource.size > 0 && request.resource.size <= 8 * 1024 * 1024
+        && request.resource.contentType.matches('image/(jpeg|png|webp)')
+        && fileName.matches('^[A-Za-z0-9_-]{1,180}[.](jpg|png|webp)$');
+      allow update, delete: if false;
+    }
+
+    match /sales_references/{userId}/{fileName} {
+      allow read: if salesAccess();
+      allow create: if salesAccess() && currentUserId() == userId
+        && resource == null && request.resource != null
+        && request.resource.size > 0 && request.resource.size <= 8 * 1024 * 1024
+        && request.resource.contentType.matches('image/(jpeg|png|webp)');
+      allow update: if false;
+      allow delete: if salesAccess();
+    }
+
+    // ========================================
+    // BLOQUEIO PADRÃO
+    // ========================================
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
