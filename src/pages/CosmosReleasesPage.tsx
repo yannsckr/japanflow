@@ -117,7 +117,7 @@ export default function CosmosReleasesPage() {
         downloadUrl,
         title: form.title.trim(),
         notes: form.notes.trim(),
-        downloadUrl: form.downloadUrl.trim(),
+
         status: 'published',
         createdBy: authenticatedUser?.id || username,
         createdAt: serverTimestamp(),
