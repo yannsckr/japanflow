@@ -94,7 +94,9 @@ export default function MotoboyLogin() {
           {busy ? 'Entrando…' : 'Entrar'}
         </button>
       </form>
-      <div className="jf-login-version"><VersionInfo /></div>
+      <div className="jf-login-version">
+        <VersionInfo />
+      </div>
       <span className="jf-moto-red-circle" aria-hidden="true" />
     </main>
   );

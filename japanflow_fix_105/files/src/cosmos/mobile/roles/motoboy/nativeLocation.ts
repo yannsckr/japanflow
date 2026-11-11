@@ -40,7 +40,9 @@ export async function startLocationWatcher(
   onError: (message: string) => void
 ): Promise<void> {
   if (!Capacitor.isNativePlatform() || !Capacitor.isPluginAvailable('BackgroundGeolocation')) {
-    throw new Error('Rastreamento em segundo plano indisponível nesta instalação. Atualize o APK ou use a localização em primeiro plano.');
+    throw new Error(
+      'Rastreamento em segundo plano indisponível nesta instalação. Atualize o APK ou use a localização em primeiro plano.'
+    );
   }
   if (watcherId) return;
   if (watcherStarting) {
@@ -72,7 +74,9 @@ export async function startLocationWatcher(
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     if (/not implemented|not available/i.test(detail)) {
-      throw new Error('O plugin de GPS em segundo plano não iniciou no Android. Localização em primeiro plano disponível; confira a instalação nativa.');
+      throw new Error(
+        'O plugin de GPS em segundo plano não iniciou no Android. Localização em primeiro plano disponível; confira a instalação nativa.'
+      );
     }
     throw error;
   } finally {

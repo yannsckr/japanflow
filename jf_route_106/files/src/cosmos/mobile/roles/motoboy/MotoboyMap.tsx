@@ -8,7 +8,11 @@ import { subscribeNativePosition } from './nativeLocation';
 // API JavaScript do Google Maps: chave pública RESTRITA a Maps JavaScript API e origens permitidas.
 // Nunca utilizar GOOGLE_MAPS_SERVER_KEY no navegador ou no APK.
 type Geo = { lat: number; lng: number };
-type GoogleMap = { setCenter: (point: Geo) => void; setZoom: (zoom: number) => void; fitBounds: (bounds: unknown) => void };
+type GoogleMap = {
+  setCenter: (point: Geo) => void;
+  setZoom: (zoom: number) => void;
+  fitBounds: (bounds: unknown) => void;
+};
 type GoogleMarker = { setMap: (map: GoogleMap | null) => void };
 type GooglePolyline = { setMap: (map: GoogleMap | null) => void };
 type GoogleDirectionsRenderer = {
@@ -46,16 +50,21 @@ declare global {
 const CITY_CENTER: Geo = { lat: -23.1896, lng: -45.8841 }; // Referência regional; não representa a loja.
 let loading: Promise<GoogleMaps> | null = null;
 const placeLocationCache = new Map<string, Geo>();
-const routeFunction = httpsCallable<{ action: string; rideId: string }, { polyline: string; distanceMeters: number }>(
-  getFunctions(app, 'southamerica-east1'), 'googleRoutePlanner'
-);
+const routeFunction = httpsCallable<
+  { action: string; rideId: string },
+  { polyline: string; distanceMeters: number }
+>(getFunctions(app, 'southamerica-east1'), 'googleRoutePlanner');
 function decodePolyline(encoded: string): Geo[] {
   const result: Geo[] = [];
-  let index = 0, lat = 0, lng = 0;
+  let index = 0,
+    lat = 0,
+    lng = 0;
   while (index < encoded.length) {
     const values: number[] = [];
     for (let n = 0; n < 2; n++) {
-      let shift = 0, value = 0, byte;
+      let shift = 0,
+        value = 0,
+        byte;
       do {
         byte = encoded.charCodeAt(index++) - 63;
         value |= (byte & 31) << shift;
@@ -63,7 +72,8 @@ function decodePolyline(encoded: string): Geo[] {
       } while (byte >= 32 && index < encoded.length);
       values.push(value & 1 ? ~(value >> 1) : value >> 1);
     }
-    lat += values[0]; lng += values[1];
+    lat += values[0];
+    lng += values[1];
     result.push({ lat: lat / 1e5, lng: lng / 1e5 });
   }
   return result;
@@ -235,7 +245,9 @@ export default function MotoboyMap({ rides = [] }: { rides?: Ride[] }) {
   useEffect(() => subscribeNativePosition(setPosition), []);
   // O servidor calcula trajetos pela Routes API. A chave de servidor nunca chega ao APK.
   // Recalcula somente se a lista de entregas mudar, não a cada atualização do GPS.
-  const nextRide = rides.find((ride) => ride.status === 'accepted') || rides.find((ride) => ride.status === 'pending');
+  const nextRide =
+    rides.find((ride) => ride.status === 'accepted') ||
+    rides.find((ride) => ride.status === 'pending');
   const rideId = nextRide?.id || '';
   const routeKey = nextRide?.routeId || '';
   useEffect(() => {
@@ -244,21 +256,29 @@ export default function MotoboyMap({ rides = [] }: { rides?: Ride[] }) {
     let canceled = false;
     directionLayer.current?.setMap(null);
     directionLayer.current = null;
-    void routeFunction({ action: 'draw', rideId }).then(({ data }) => {
-      if (canceled || !instance.current) return;
-      const path = decodePolyline(data.polyline || '');
-      if (!path.length) throw new Error('Trajeto vazio retornado pelo Google.');
-      const line = new maps.Polyline({ map: instance.current, path, strokeColor: '#214E42', strokeWeight: 5, strokeOpacity: 0.9 });
-      directionLayer.current = line;
-      const bounds = new maps.LatLngBounds();
-      path.forEach((point) => bounds.extend(point));
-      instance.current.fitBounds(bounds);
-      setError('');
-    }).catch((reason: unknown) => {
-      if (canceled) return;
-      const message = reason instanceof Error ? reason.message : 'Erro ao buscar rota';
-      setError(`Trajeto indisponível: ${message}. O mapa e as entregas permanecem acessíveis.`);
-    });
+    void routeFunction({ action: 'draw', rideId })
+      .then(({ data }) => {
+        if (canceled || !instance.current) return;
+        const path = decodePolyline(data.polyline || '');
+        if (!path.length) throw new Error('Trajeto vazio retornado pelo Google.');
+        const line = new maps.Polyline({
+          map: instance.current,
+          path,
+          strokeColor: '#214E42',
+          strokeWeight: 5,
+          strokeOpacity: 0.9,
+        });
+        directionLayer.current = line;
+        const bounds = new maps.LatLngBounds();
+        path.forEach((point) => bounds.extend(point));
+        instance.current.fitBounds(bounds);
+        setError('');
+      })
+      .catch((reason: unknown) => {
+        if (canceled) return;
+        const message = reason instanceof Error ? reason.message : 'Erro ao buscar rota';
+        setError(`Trajeto indisponível: ${message}. O mapa e as entregas permanecem acessíveis.`);
+      });
     return () => {
       canceled = true;
       directionLayer.current?.setMap(null);

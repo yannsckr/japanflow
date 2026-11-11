@@ -568,4 +568,8 @@
   overflow-x: clip;
 }
 
-.jf-login-version { position: relative; z-index: 3; padding-bottom: calc(12px + env(safe-area-inset-bottom)); }
+.jf-login-version {
+  position: relative;
+  z-index: 3;
+  padding-bottom: calc(12px + env(safe-area-inset-bottom));
+}

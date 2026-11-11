@@ -293,12 +293,18 @@ export default function MotoboyExperience({ initialScreen = 'home' }: { initialS
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Não foi possível iniciar o GPS';
-      if (Capacitor.isNativePlatform() && /plugin|segundo plano|not implemented/i.test(message) && navigator.geolocation) {
+      if (
+        Capacitor.isNativePlatform() &&
+        /plugin|segundo plano|not implemented/i.test(message) &&
+        navigator.geolocation
+      ) {
         navigator.geolocation.getCurrentPosition(
           () => {
             setGpsState('ok');
             setTracking(false);
-            toast.warning('Localização em primeiro plano autorizada. Rastreamento em segundo plano indisponível neste APK.');
+            toast.warning(
+              'Localização em primeiro plano autorizada. Rastreamento em segundo plano indisponível neste APK.'
+            );
           },
           () => {
             setGpsState('denied');
@@ -995,7 +1001,9 @@ export default function MotoboyExperience({ initialScreen = 'home' }: { initialS
                 </button>
               ))}
             </div>
-            <div className="jm-version-panel"><VersionInfo withCheck /></div>
+            <div className="jm-version-panel">
+              <VersionInfo withCheck />
+            </div>
             <Button
               secondary
               onClick={async () => {
