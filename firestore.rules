@@ -321,10 +321,10 @@ service cloud.firestore {
           'archived_at', 'archived_by', 'archivedAt', 'archivedBy',
           'warranty_archived_by_deletion', 'warranty_previous_board_visible'
         ])
-        && exists(claimPath)
-        && get(claimPath).data.get('requested_by', '') == currentUserId()
-        && get(claimPath).data.get('origin', 'manual') != 'site'
-        && get(claimPath).data.get('deleted_at', null) == null;
+        && existsAfter(claimPath)
+        && getAfter(claimPath).data.get('requested_by', '') == currentUserId()
+        && getAfter(claimPath).data.get('origin', 'manual') != 'site'
+        && getAfter(claimPath).data.get('deleted_at', null) == null;
     }
 
     // Operational tasks: active staff may update status; transfer is forbidden to motoboys.

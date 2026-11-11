@@ -83,7 +83,8 @@ export default function CosmosReleasesPage() {
       return toast.error('Use versão no formato 1.2.3');
     if (!form.title.trim() || !form.notes.trim())
       return toast.error('Informe título e notas da versão');
-    if (!validHttpsUrl(form.downloadUrl)) return toast.error('O download precisa usar HTTPS');
+    if (!apkFile && !validHttpsUrl(form.downloadUrl))
+      return toast.error('Selecione um APK ou informe uma URL HTTPS');
     if (apkFile && form.downloadUrl.trim())
       return toast.error('Escolha um APK ou informe um link, não ambos');
     if (
@@ -212,7 +213,7 @@ export default function CosmosReleasesPage() {
         </div>
         <Button onClick={() => setShowForm(!showForm)}>
           <Plus size={16} className="mr-2" />
-          {showForm ? 'Fechar editor' : 'Nova release'}
+          {showForm ? 'Fechar editor' : 'Enviar APK / Nova release'}
         </Button>
       </header>
       {showForm && (

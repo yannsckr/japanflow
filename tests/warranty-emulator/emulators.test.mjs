@@ -18,7 +18,7 @@ const { getFirestore } = await import('firebase-admin/firestore');
 const root = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(root, '../..');
 const candidate = path.join(repo, 'functions');
-const bucketUrl = 'gs://' + isolation.projectId + '.appspot.com';
+const bucketUrl = 'gs://japanflow-erp.firebasestorage.app';
 const mediaPath =
   'attachments/warranties/site/00000000-0000-4000-8000-000000000029/' + 'a'.repeat(64) + '/0';
 const image = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3]);
