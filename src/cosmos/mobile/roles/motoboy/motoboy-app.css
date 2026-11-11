@@ -1359,3 +1359,72 @@
   border-top: 1px solid var(--jm-line);
   padding-top: 10px;
 }
+
+/* COSMOS MAP UX / GPS STATUS - hotfix de rotas */
+.jm-gps-dot {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 2px solid var(--jm-surface, #fff);
+  box-sizing: content-box;
+  box-shadow: 0 0 0 1px #00000012;
+}
+.jm-gps-ok {
+  background: #18a46a;
+}
+.jm-gps-unknown {
+  background: #eab548;
+}
+.jm-gps-denied {
+  background: #dd4b4b;
+}
+.jm-map-screen {
+  background: #f5f7f7;
+}
+.jm-map-large {
+  min-height: 52vh;
+}
+.jm-map-sheet {
+  border-radius: 22px 22px 0 0;
+  padding: 15px 18px 20px;
+  box-shadow: 0 -4px 28px #152a2220;
+  border: 1px solid #e8ecea;
+}
+.jm-map-sheet h2 {
+  font-size: 18px;
+  letter-spacing: -0.035em;
+  font-weight: 700;
+  margin: 6px 0;
+}
+.jm-map-sheet > small {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: #6c8178;
+  font-weight: 700;
+}
+.jm-map-sheet > p {
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 7px 0;
+  color: #64746d;
+}
+.jm-map-sheet .jm-action-pair {
+  margin-top: 15px;
+}
+.jf-google-map-warning {
+  inset: auto 14px 14px;
+  border: 1px solid #e6ebe8;
+  border-radius: 14px;
+  background: #ffffffed;
+  color: #5b675f;
+  box-shadow: 0 8px 28px #132a2120;
+  padding: 10px 12px;
+  font-size: 11px;
+  max-width: calc(100% - 28px);
+}
+.jf-moto-locate {
+  box-shadow: 0 6px 24px #10251d19;
+}

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Capacitor } from '@capacitor/core';
-import { startLocationWatcher, stopLocationWatcher } from './nativeLocation';
+import { startLocationWatcher } from './nativeLocation';
 import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -77,6 +77,7 @@ function Top({
   back,
   onBell,
   onGps,
+  gpsStatus = 'unknown',
   menu = false,
   onHome,
 }: {
@@ -84,6 +85,7 @@ function Top({
   back?: () => void;
   onBell?: () => void;
   onGps?: () => void;
+  gpsStatus?: 'unknown' | 'ok' | 'denied';
   menu?: boolean;
   onHome?: () => void;
 }) {
@@ -120,6 +122,7 @@ function Top({
             title="GPS"
           >
             <MapPin size={19} />
+            <span className={`jm-gps-dot jm-gps-${gpsStatus}`} aria-hidden="true" />
           </button>
         )}
         {onBell ? (
@@ -234,6 +237,7 @@ export default function MotoboyExperience({ initialScreen = 'home' }: { initialS
   const [mapSheetCollapsed, setMapSheetCollapsed] = useState(false);
   const [sheetTouchY, setSheetTouchY] = useState<number | null>(null);
   const [gpsState, setGpsState] = useState<'unknown' | 'ok' | 'denied'>('unknown');
+  const gpsKey = currentUser?.id ? `japanflow:location-opt-in:${currentUser.id}` : null;
   useEffect(() => {
     const update = () => setOnline(navigator.onLine);
     window.addEventListener('online', update);
@@ -275,11 +279,13 @@ export default function MotoboyExperience({ initialScreen = 'home' }: { initialS
         );
         setTracking(true);
         setGpsState('ok');
+        if (gpsKey) localStorage.setItem(gpsKey, 'true');
         toast.success('Rastreamento ativo no dispositivo');
       } else if (navigator.geolocation) {
         navigator.geolocation.getCurrentPosition(
           () => {
             setGpsState('ok');
+            if (gpsKey) localStorage.setItem(gpsKey, 'true');
             toast.success('Localização autorizada no navegador');
           },
           () => {
@@ -320,18 +326,41 @@ export default function MotoboyExperience({ initialScreen = 'home' }: { initialS
       setTrackingBusy(false);
     }
   };
-  const stopGps = async () => {
-    setTrackingBusy(true);
-    try {
-      await stopLocationWatcher();
-      setTracking(false);
-      toast.success('Rastreamento encerrado');
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Erro ao encerrar rastreamento');
-    } finally {
-      setTrackingBusy(false);
-    }
-  };
+  // Restaura o consentimento por usuário após reabrir o aplicativo.
+  // O Android controla a permissão real: se revogada, exibimos status vermelho.
+  useEffect(() => {
+    if (!gpsKey || localStorage.getItem(gpsKey) !== 'true' || !Capacitor.isNativePlatform()) return;
+    let cancelled = false;
+    void startLocationWatcher(
+      () => {
+        if (!cancelled) {
+          setGpsState('ok');
+          setTracking(true);
+        }
+      },
+      () => {
+        if (!cancelled) {
+          setGpsState('denied');
+          setTracking(false);
+        }
+      }
+    )
+      .then(() => {
+        if (!cancelled) {
+          setTracking(true);
+          setGpsState('ok');
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setTracking(false);
+          setGpsState('denied');
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [gpsKey]);
   const execute = async (action: () => Promise<void>, success: string, after: Screen) => {
     if (busy || !online) return;
     setBusy(true);
@@ -384,6 +413,7 @@ export default function MotoboyExperience({ initialScreen = 'home' }: { initialS
       back={screen === 'home' ? undefined : () => go('home')}
       onBell={() => go('notifications')}
       onGps={withGps ? () => go('gps') : undefined}
+      gpsStatus={gpsState}
       onHome={() => go('home')}
     />
   );
@@ -407,6 +437,15 @@ export default function MotoboyExperience({ initialScreen = 'home' }: { initialS
               aria-label="Voltar ao início"
             >
               <Brand small />
+            </button>
+            <button
+              type="button"
+              className="jm-icon"
+              onClick={() => go('gps')}
+              aria-label="Status do GPS"
+            >
+              <MapPin size={19} />
+              <span className={`jm-gps-dot jm-gps-${gpsState}`} aria-hidden="true" />
             </button>
             <button
               className="jm-icon"
@@ -634,7 +673,7 @@ export default function MotoboyExperience({ initialScreen = 'home' }: { initialS
       )}
       {screen === 'map' && (
         <>
-          {top('Rota de entrega')}
+          {top('Rota de entrega', true)}
           <div className="jm-scroll jm-map-screen">
             <div className="jm-map-large">
               <MotoboyMap
@@ -671,7 +710,7 @@ export default function MotoboyExperience({ initialScreen = 'home' }: { initialS
               </button>
               {!mapSheetCollapsed && (
                 <>
-                  <small>DESTINO / SUA PRÓXIMA ENTREGA</small>
+                  <small>PRÓXIMA PARADA · {rides.route.length} ENTREGA(S)</small>
                   <h2>
                     {selected?.clientName ||
                       rides.active[0]?.clientName ||
@@ -685,10 +724,7 @@ export default function MotoboyExperience({ initialScreen = 'home' }: { initialS
                       rides.pending[0]?.location ||
                       'Aguardando uma entrega atribuída'}
                   </p>
-                  <p className="jm-muted">
-                    O mapa mostra sua localização. Para orientação curva a curva, abra o aplicativo
-                    de mapas.
-                  </p>
+
                   <div className="jm-action-pair">
                     <Button
                       secondary
@@ -1058,14 +1094,9 @@ export default function MotoboyExperience({ initialScreen = 'home' }: { initialS
                   : 'O rastreamento só inicia após sua autorização. Na versão web, apenas a localização pontual está disponível.'}
               </small>
             </div>
-            {tracking ? (
-              <Button onClick={stopGps} disabled={trackingBusy}>
-                <MapPin size={17} /> Encerrar rastreamento
-              </Button>
-            ) : (
+            {!tracking && (
               <Button onClick={requestGps} disabled={trackingBusy}>
-                <MapPin size={17} />{' '}
-                {trackingBusy ? 'Solicitando acesso…' : 'Autorizar localização'}
+                <MapPin size={17} /> {trackingBusy ? 'Solicitando acesso…' : 'Ativar localização'}
               </Button>
             )}
           </div>

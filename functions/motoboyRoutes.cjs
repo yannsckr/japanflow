@@ -40,8 +40,66 @@ async function google(url,body,fieldMask) {
 const placeIdValid = x => typeof x === 'string' && x.length >= 3 && x.length <= 250 && /^[\w:-]+$/.test(x);
 
 exports.googleRoutePlanner = onCall(cfg, async request => {
-  const callerId=await authorized(request);
   const action=request.data?.action;
+  // draw: motoboy pode consultar SOMENTE suas corridas. A chave Google fica no servidor.
+  // Não exige motoboy_management, reservado ao gestor para atribuição e otimização.
+  if (action === 'draw') {
+    if (!request.auth?.uid) throw new HttpsError('unauthenticated', 'Faça login.');
+    const link = await db.doc(`auth_links/${request.auth.uid}`).get();
+    const identity = link.data();
+    if (!identity?.user_id || identity.active === false)
+      throw new HttpsError('permission-denied', 'Conta inativa.');
+    const callerId = identity.user_id;
+    const user = await db.doc(`users/${callerId}`).get();
+    if (!user.exists || user.data()?.active === false)
+      throw new HttpsError('permission-denied', 'Usuário inativo.');
+    const rideId = boundedString(request.data?.rideId, 150);
+    if (!/^[A-Za-z0-9_-]{1,150}$/.test(rideId))
+      throw new HttpsError('invalid-argument', 'Corrida inválida.');
+    const ride = await db.doc(`motoboy_assignments/${rideId}`).get();
+    if (!ride.exists) throw new HttpsError('not-found', 'Corrida não encontrada.');
+    const data = ride.data();
+    const canManage = identity.role === 'admin' || user.data()?.role === 'admin' ||
+      callerId === 'emp-1' ||
+      (await db.doc(`user_feature_permissions/motoboy_management__${callerId}`).get()).data()?.enabled === true;
+    if (data.assigned_to !== callerId && !canManage)
+      throw new HttpsError('permission-denied', 'Corrida não atribuída a você.');
+    if (!['pending', 'accepted'].includes(data.status))
+      throw new HttpsError('failed-precondition', 'Corrida fora da rota ativa.');
+    const routeId = typeof data.route_id === 'string' ? data.route_id : '';
+    let stops = [data];
+    if (routeId) {
+      const snapshot = await db.collection('motoboy_assignments')
+        .where('assigned_to', '==', data.assigned_to).get();
+      stops = snapshot.docs.map(d => d.data()).filter(d =>
+        d.route_id === routeId && ['pending', 'accepted'].includes(d.status));
+      stops.sort((a, b) => (a.route_order || 9999) - (b.route_order || 9999));
+    }
+    if (!stops.length || stops.length > 20)
+      throw new HttpsError('failed-precondition', 'Rota indisponível.');
+    const waypoint = (item) => {
+      const placeId = boundedString(item.destination_place_id, 250);
+      if (placeIdValid(placeId)) return {placeId};
+      const address = boundedString(item.location, 400);
+      return address ? {address} : null;
+    };
+    const points = stops.map(waypoint);
+    if (points.some(p => !p))
+      throw new HttpsError('failed-precondition', 'Defina endereços válidos para todas as entregas.');
+    const payload = {
+      origin: {address: ORIGIN.address},
+      destination: points[points.length - 1],
+      ...(points.length > 1 ? {intermediates: points.slice(0, -1)} : {}),
+      travelMode: 'DRIVE', languageCode: 'pt-BR',
+    };
+    const response = await google('https://routes.googleapis.com/directions/v2:computeRoutes',
+      payload, 'routes.polyline.encodedPolyline,routes.distanceMeters');
+    const result = response.routes?.[0];
+    if (!result?.polyline?.encodedPolyline)
+      throw new HttpsError('unavailable', 'Trajeto indisponível para os endereços informados.');
+    return {polyline: result.polyline.encodedPolyline, distanceMeters: result.distanceMeters || 0};
+  }
+  const callerId=await authorized(request);
   if(action==='autocomplete') {
     const input=boundedString(request.data?.input,120);
     if(input.length<3) return {suggestions:[]};
@@ -94,10 +152,10 @@ exports.googleRoutePlanner = onCall(cfg, async request => {
       const refs=ids.map(id=>db.doc(`motoboy_assignments/${id}`));
       const snaps=await Promise.all(refs.map(ref=>tx.get(ref)));
       for(const snap of snaps){
-        if(!snap.exists || snap.data()?.assigned_to!==motoboyId || snap.data()?.status!=='pending') throw new HttpsError('failed-precondition','Uma corrida foi alterada. Atualize a lista e tente novamente.');
+        if(!snap.exists || (snap.data()?.assigned_to && snap.data()?.assigned_to!==motoboyId) || snap.data()?.status!=='pending') throw new HttpsError('failed-precondition','Uma corrida foi alterada. Atualize a lista e tente novamente.');
       }
       refs.forEach((ref,i)=>tx.update(ref,{
-        route_id:routeId, route_order:i+1, destination_place_id:stops[i].placeId,
+        assigned_to:motoboyId, route_id:routeId, route_order:i+1, destination_place_id:stops[i].placeId,
         location:boundedString(stops[i].address,400),route_assigned_by:callerId,
         route_origin_address:ORIGIN.address,route_assigned_at:FieldValue.serverTimestamp(),updated_at:FieldValue.serverTimestamp(),
       }));

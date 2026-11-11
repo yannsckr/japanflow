@@ -4,6 +4,7 @@ import { getFunctions, httpsCallable } from 'firebase/functions';
 import app from '@/lib/firebase';
 import type { Ride } from './useMotoboyRides';
 import { subscribeNativePosition } from './nativeLocation';
+import storePin from '@/assets/japanflow-store-pin.png';
 
 // API JavaScript do Google Maps: chave pública RESTRITA a Maps JavaScript API e origens permitidas.
 // Nunca utilizar GOOGLE_MAPS_SERVER_KEY no navegador ou no APK.
@@ -36,6 +37,7 @@ type GoogleGeocoder = {
 type GoogleMaps = {
   Map: new (element: HTMLElement, opts: Record<string, unknown>) => GoogleMap;
   Marker: new (opts: Record<string, unknown>) => GoogleMarker;
+  Size: new (width: number, height: number) => unknown;
   Geocoder: new () => GoogleGeocoder;
   DirectionsRenderer: new (options: Record<string, unknown>) => GoogleDirectionsRenderer;
   DirectionsService: new () => GoogleDirectionsService;
@@ -215,10 +217,11 @@ export default function MotoboyMap({ rides = [] }: { rides?: Ride[] }) {
           map: instance.current,
           position: actualOrigin,
           title: 'Japan Imports — origem',
-          label: 'L',
+          icon: { url: storePin, scaledSize: new maps.Size(46, 46) },
         })
       );
-    rides.forEach((r, index) => {
+    const orderedRides = [...rides].sort((a, b) => (a.routeOrder ?? 9999) - (b.routeOrder ?? 9999));
+    orderedRides.forEach((r, index) => {
       const point =
         r.destinationLat != null && r.destinationLng != null
           ? { lat: r.destinationLat, lng: r.destinationLng }
@@ -231,7 +234,12 @@ export default function MotoboyMap({ rides = [] }: { rides?: Ride[] }) {
             map: instance.current,
             position: point,
             title: r.clientName || r.location,
-            label: String(r.routeOrder ?? index + 1),
+            label: {
+              text: String(index + 1),
+              color: '#ffffff',
+              fontWeight: '700',
+              fontSize: '13px',
+            },
           })
         );
     });
@@ -277,7 +285,7 @@ export default function MotoboyMap({ rides = [] }: { rides?: Ride[] }) {
       .catch((reason: unknown) => {
         if (canceled) return;
         const message = reason instanceof Error ? reason.message : 'Erro ao buscar rota';
-        setError(`Trajeto indisponível: ${message}. O mapa e as entregas permanecem acessíveis.`);
+        setError(`Não foi possível traçar a rota: ${message}`);
       });
     return () => {
       canceled = true;
