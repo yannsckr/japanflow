@@ -26,7 +26,7 @@ export default function MotoboyLogin() {
       const user = await login(username.trim(), password);
       if (!isMotoboyUser(user)) {
         await logout();
-        setError('Este aplicativo é exclusivo para usuários com cargo de motoboy.');
+        setError('Este aplicativo Ã© exclusivo para usuÃ¡rios com cargo de motoboy.');
         return;
       }
       // Preservar a mesma restricao de rede do login web existente.
@@ -34,14 +34,14 @@ export default function MotoboyLogin() {
         const ip = await getClientPublicIp();
         if (!isIpAllowed(ip) && !(await userCanAccessExternally(user.id))) {
           await logout();
-          setError('Acesso não permitido nesta rede.');
+          setError('Acesso nÃ£o permitido nesta rede.');
           return;
         }
       }
       navigate('/motoboy', { replace: true });
     } catch (reason) {
       console.warn('Falha no login mobile:', reason);
-      setError('Não foi possível entrar. Confira suas credenciais.');
+      setError('NÃ£o foi possÃ­vel entrar. Confira suas credenciais.');
     } finally {
       setBusy(false);
     }
@@ -56,13 +56,13 @@ export default function MotoboyLogin() {
       <form className="jf-moto-login-form" onSubmit={onSubmit}>
         <h1>Acesse sua conta</h1>
         <div className="jf-moto-field">
-          <label htmlFor="jf-user">Usuário</label>
+          <label htmlFor="jf-user">UsuÃ¡rio</label>
           <div className="jf-moto-input-wrap">
             <UserRound size={18} />
             <input
               id="jf-user"
               autoComplete="username"
-              placeholder="Seu usuário"
+              placeholder="Seu usuÃ¡rio"
               value={username}
               onChange={(event) => setUsername(event.target.value)}
               required
@@ -90,12 +90,10 @@ export default function MotoboyLogin() {
           </p>
         )}
         <button className="jf-moto-login-submit" type="submit" disabled={busy || authLoading}>
-          {busy ? 'Entrando…' : 'Entrar'}
+          {busy ? 'Entrandoâ€¦' : 'Entrar'}
         </button>
       </form>
-      <div className="jf-login-version">
-        <VersionInfo />
-      </div>
+
       <span className="jf-moto-red-circle" aria-hidden="true" />
     </main>
   );
