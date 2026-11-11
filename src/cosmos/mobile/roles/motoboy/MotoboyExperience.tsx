@@ -32,12 +32,12 @@ import { toast } from 'sonner';
 import { useApp } from '@/contexts/AppContext';
 import { useThemeToggle } from '@/hooks/useThemeToggle';
 import ChatPage from '@/pages/ChatPage';
+import VersionInfo from '@/cosmos/releases/VersionInfo';
 import MotoboyMap from './MotoboyMap';
 import { useMotoboyRides, type Ride } from './useMotoboyRides';
 import { finishRide, reportRideOccurrence, startRide } from './motoboyWorkflow';
 import logoLight from '@/assets/japanflow-logo-light.png';
 import './motoboy-app.css';
-import CosmosUpdatePrompt from '@/cosmos/releases/CosmosUpdatePrompt';
 
 type Screen =
   | 'home'
@@ -292,8 +292,30 @@ export default function MotoboyExperience({ initialScreen = 'home' }: { initialS
         throw new Error('GPS não disponível neste dispositivo');
       }
     } catch (error) {
-      setGpsState('denied');
-      toast.error(error instanceof Error ? error.message : 'Não foi possível iniciar o GPS');
+      const message = error instanceof Error ? error.message : 'Não foi possível iniciar o GPS';
+      if (
+        Capacitor.isNativePlatform() &&
+        /plugin|segundo plano|not implemented/i.test(message) &&
+        navigator.geolocation
+      ) {
+        navigator.geolocation.getCurrentPosition(
+          () => {
+            setGpsState('ok');
+            setTracking(false);
+            toast.warning(
+              'Localização em primeiro plano autorizada. Rastreamento em segundo plano indisponível neste APK.'
+            );
+          },
+          () => {
+            setGpsState('denied');
+            toast.error('Localização não autorizada. Verifique as permissões do Android.');
+          },
+          { enableHighAccuracy: true, timeout: 15000 }
+        );
+      } else {
+        setGpsState('denied');
+        toast.error(message);
+      }
     } finally {
       setTrackingBusy(false);
     }
@@ -367,7 +389,6 @@ export default function MotoboyExperience({ initialScreen = 'home' }: { initialS
   );
   return (
     <main className={`jm-app jm-theme-${theme}`}>
-      <CosmosUpdatePrompt />
       {!online && screen !== 'offline' && (
         <button className="jm-offline-alert" onClick={() => go('offline')}>
           <WifiOff size={15} /> Sem conexão — toque para detalhes
@@ -790,7 +811,7 @@ export default function MotoboyExperience({ initialScreen = 'home' }: { initialS
               <strong>Conversas da equipe</strong>
               <span>Mensagens sincronizadas com o JapanFlow Web</span>
             </div>
-            <ChatPage />
+            <ChatPage initialTab="contacts" />
           </div>
           {bottom}
         </>
@@ -979,6 +1000,9 @@ export default function MotoboyExperience({ initialScreen = 'home' }: { initialS
                   <ChevronRight size={16} />
                 </button>
               ))}
+            </div>
+            <div className="jm-version-panel">
+              <VersionInfo withCheck />
             </div>
             <Button
               secondary

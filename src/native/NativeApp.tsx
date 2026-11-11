@@ -7,6 +7,8 @@ import { Toaster as Sonner } from '@/components/ui/sonner';
 import { AppProvider, useApp } from '@/contexts/AppContext';
 import NativeShell, { type NativePlatform } from './NativeShell';
 import MotoboySplash from '@/cosmos/mobile/roles/motoboy/MotoboySplash';
+import JapanFlowUpdateCenter from '@/cosmos/releases/JapanFlowUpdateCenter';
+import JapanFlowVersionReset from '@/cosmos/releases/JapanFlowVersionReset';
 import { isMotoboyUser } from '@/cosmos/mobile/roles/motoboy/motoboyAccess';
 
 const LoginPage = lazy(() => import('@/pages/LoginPage'));
@@ -133,6 +135,12 @@ export default function NativeApp({ platform }: { platform: NativePlatform }) {
         <Sonner />
         <HashRouter>
           <AppProvider>
+            {platform === 'android' && (
+              <>
+                <JapanFlowVersionReset />
+                <JapanFlowUpdateCenter />
+              </>
+            )}
             {showSplash ? (
               <MotoboySplash onDone={() => setShowSplash(false)} />
             ) : (

@@ -567,3 +567,5 @@
   width: 100%;
   overflow-x: clip;
 }
+
+.jf-login-version { position: relative; z-index: 3; padding-bottom: calc(12px + env(safe-area-inset-bottom)); }

@@ -1341,3 +1341,17 @@
     animation: none !important;
   }
 }
+
+/* JapanFlow Android: o cabeçalho do chat nunca pode consumir toda a altura. */
+.jm-chat-wrap > .jm-chat-intro {
+  flex: 0 0 auto;
+  height: auto;
+  min-height: unset;
+}
+.jm-chat-wrap > div:not(.jm-chat-intro) {
+  flex: 1 1 0%;
+  min-height: 0;
+  height: auto;
+  overflow: hidden;
+}
+.jm-version-panel { margin: 14px 0 18px; border-top: 1px solid var(--jm-line); padding-top: 10px; }

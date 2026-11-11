@@ -208,10 +208,14 @@ const ConversationRow = ({
   );
 };
 
-const ChatPage = () => {
+const ChatPage = ({
+  initialTab = 'conversations',
+}: {
+  initialTab?: 'conversations' | 'contacts';
+}) => {
   const { authenticatedUser: currentUser, users } = useApp();
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
-  const [tab, setTab] = useState<'conversations' | 'contacts'>('conversations');
+  const [tab, setTab] = useState<'conversations' | 'contacts'>(initialTab);
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [contextMenu, setContextMenu] = useState<{
     x: number;
@@ -505,6 +509,11 @@ const ChatPage = () => {
             )
           ) : (
             <div className="space-y-1">
+              {contactUsers.length === 0 && (
+                <p className="p-4 text-center text-sm text-muted-foreground">
+                  Nenhum contato disponível. Verifique o acesso e a sincronização dos usuários.
+                </p>
+              )}
               {contactUsers.map((user) => {
                 const preview = previewByUsername.get(user.username);
                 const preference = getPreference(user.id);

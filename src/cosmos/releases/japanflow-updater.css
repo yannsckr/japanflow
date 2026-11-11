@@ -1,0 +1,130 @@
+.jf-update-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  background: rgba(11, 19, 24, 0.62);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  backdrop-filter: blur(5px);
+}
+.jf-update-card {
+  width: min(100%, 440px);
+  max-height: 86dvh;
+  overflow: auto;
+  border: 1px solid #d9e1de;
+  background: #fff;
+  color: #1b2925;
+  border-radius: 24px;
+  padding: 25px;
+  box-shadow: 0 30px 85px #0005;
+  font-family: inherit;
+}
+.jf-update-header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 14px;
+}
+.jf-update-header small {
+  color: #527267;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  font-size: 10px;
+}
+.jf-update-header h2 {
+  color: #172c25;
+  font-size: 22px;
+  font-weight: 700;
+  margin: 8px 0;
+}
+.jf-update-header button {
+  color: #314b41;
+  padding: 7px;
+  border-radius: 10px;
+  background: #eef2ef;
+}
+.jf-update-card h3 {
+  font-size: 16px;
+  font-weight: 700;
+  margin: 18px 0 6px;
+  color: #172c25;
+}
+.jf-update-version {
+  color: #566c62;
+  font-size: 13px;
+  margin: 12px 0;
+}
+.jf-update-notes {
+  color: #344c42;
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  max-height: 28vh;
+  overflow: auto;
+}
+.jf-update-primary {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 13px;
+  background: #17382b;
+  color: #fff;
+  padding: 14px 18px;
+  font-weight: 650;
+  margin-top: 18px;
+}
+.jf-update-primary:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+.jf-update-secondary {
+  display: block;
+  margin: 12px auto 0;
+  color: #375a4a;
+  font-size: 13px;
+  padding: 10px;
+}
+.jf-update-error {
+  color: #b42318;
+  font-size: 13px;
+  margin: 12px 0;
+}
+.jf-update-hint {
+  font-size: 12px;
+  color: #657c70;
+  margin: 10px 0;
+}
+.jf-update-track {
+  height: 8px;
+  background: #e3ebe6;
+  border-radius: 99px;
+  overflow: hidden;
+}
+.jf-update-track span {
+  display: block;
+  height: 100%;
+  background: #2f7956;
+  transition: width 0.22s;
+}
+.jf-update-progress {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+  font-size: 12px;
+  color: #345e4b;
+}
+.jf-update-beta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 15px;
+  color: #496b5c;
+  font-size: 12px;
+}
+.jf-update-beta input {
+  accent-color: #295f43;
+}
