@@ -13,6 +13,8 @@ import {
 } from '@/components/ui/sheet';
 import { Send, Paperclip, Mic, Image, FileText, MicOff, CheckCheck, Smile, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { ChatRichText } from './ChatRichText';
+import { saveChatAttachment } from './saveChatAttachment';
 import { toast } from 'sonner';
 import { useChat } from '@/funcionalidades/chat/hooks/useChat';
 import {
@@ -55,15 +57,25 @@ const SecureAttachment = ({ src, name }: { src: string; name: string }) => {
     };
   }, [src, retry]);
   return href ? (
-    <a
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="flex items-center gap-2 break-all text-xs underline"
-    >
-      <FileText className="h-4 w-4 shrink-0" />
-      {name}
-    </a>
+    <>
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="flex items-center gap-2 break-all text-xs underline"
+      >
+        <FileText className="h-4 w-4 shrink-0" />
+        Abrir {name}
+      </a>
+      <button
+        type="button"
+        className="ml-2 text-xs underline"
+        aria-label={`Salvar ${name}`}
+        onClick={() => void saveChatAttachment(href, name)}
+      >
+        Salvar
+      </button>
+    </>
   ) : failed ? (
     <span role="status" className="flex items-center gap-2 text-xs text-muted-foreground">
       Arquivo indisponível.
@@ -644,9 +656,9 @@ const ChatPanel = ({ otherUser }: ChatPanelProps) => {
           }}
           onDragStart={(event) => event.preventDefault()}
           onPointerDown={(event) => {
-            if (msg.deleted || (event.pointerType === 'mouse' && event.button !== 0)) return;
+            if (msg.deleted || event.pointerType === 'mouse') return;
             const target = event.target as HTMLElement;
-            if (target.closest('button, a, input, textarea, video, audio')) return;
+            if (target.closest('button, a, img, input, textarea, video, audio')) return;
             pointerSwipeStart.current = {
               id: msg.id,
               pointerId: event.pointerId,
@@ -693,7 +705,7 @@ const ChatPanel = ({ otherUser }: ChatPanelProps) => {
             cursor: msg.deleted ? 'default' : 'grab',
           }}
           className={cn(
-            'order-1 relative max-w-[82%] select-none break-words rounded-2xl px-3.5 py-2.5 text-sm sm:max-w-[70%]',
+            'order-1 relative max-w-[82%] select-text break-words rounded-2xl px-3.5 py-2.5 text-sm sm:max-w-[70%]',
             isMe
               ? 'rounded-br-md bg-primary text-primary-foreground'
               : 'rounded-bl-md bg-secondary text-secondary-foreground',
@@ -743,7 +755,7 @@ const ChatPanel = ({ otherUser }: ChatPanelProps) => {
             )}
 
             <p className={cn('whitespace-pre-wrap break-words', msg.deleted && 'italic')}>
-              {msg.content}
+              <ChatRichText text={msg.content || ''} />
             </p>
 
             {!msg.deleted && Object.values(msg.reactions || {}).length > 0 && (

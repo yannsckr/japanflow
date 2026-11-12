@@ -94,11 +94,12 @@ export async function getSignedUrl(
   const isHttp = /^https?:\/\//i.test(pathOrPublicUrl);
   const legacyPath = isHttp ? workerPath(pathOrPublicUrl) : null;
 
-  if (isHttp && !legacyPath) {
+  const firebasePath = isHttp ? pathFromPublicUrl(pathOrPublicUrl, bucket) : null;
+  if (isHttp && !legacyPath && !firebasePath) {
     return pathOrPublicUrl;
   }
 
-  const rawPath = legacyPath || pathOrPublicUrl.replace(/^\/+/, '');
+  const rawPath = legacyPath || firebasePath || pathOrPublicUrl.replace(/^\/+/, '');
   const path = normalizePath(rawPath.startsWith(`${bucket}/`) ? rawPath : `${bucket}/${rawPath}`);
 
   if (!path) return pathOrPublicUrl;

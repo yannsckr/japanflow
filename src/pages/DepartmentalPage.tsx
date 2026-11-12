@@ -1424,7 +1424,7 @@ const DepartmentalPage = () => {
                       <div
                         key={motoboyId}
                         className={cn(
-                          'min-w-0 space-y-2.5 overflow-hidden rounded-2xl border border-border/60 bg-muted/10 p-3 sm:p-4',
+                          'min-w-0 space-y-2 overflow-hidden rounded-xl border border-border/60 bg-muted/10 p-2.5 sm:p-3',
                           isUnassignedGroup && 'border-warning/35 bg-warning/5'
                         )}
                       >
@@ -1442,7 +1442,7 @@ const DepartmentalPage = () => {
                             {grouped[motoboyId].length} corrida(s)
                           </span>
                         </h4>
-                        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                        <div className="grid gap-1.5 sm:grid-cols-1 xl:grid-cols-2">
                           {grouped[motoboyId].map((ma) => {
                             const assignedMs = Date.now() - new Date(ma.createdAt).getTime();
                             const isIdle = ma.status !== 'completed' && assignedMs > 20 * 60000;
@@ -1457,7 +1457,7 @@ const DepartmentalPage = () => {
                               <div
                                 key={ma.id}
                                 className={cn(
-                                  'jf-interactive min-w-0 rounded-xl border border-border/70 bg-card p-3 text-xs hover:bg-muted/20 sm:p-3.5',
+                                  'jf-interactive min-w-0 rounded-lg border border-border/70 bg-card px-2.5 py-2 text-xs hover:bg-muted/20',
                                   isIdle && 'ring-1 ring-destructive/50'
                                 )}
                               >

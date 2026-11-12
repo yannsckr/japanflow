@@ -4,6 +4,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Send, Paperclip, Image, FileText } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { ChatRichText } from './ChatRichText';
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { saveChatAttachment } from './saveChatAttachment';
 import { toast } from 'sonner';
 import { useGroupChat, GroupMessage } from '@/funcionalidades/chat/hooks/useGroupChat';
 import { useGroupTyping } from '@/funcionalidades/chat/hooks/useTypingPresence';
@@ -32,15 +35,25 @@ const GroupAttachment = ({ src, name }: { src: string; name: string }) => {
     };
   }, [src]);
   return href ? (
-    <a
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="flex items-center gap-2 break-all text-xs underline"
-    >
-      <FileText className="h-4 w-4 shrink-0" />
-      {name}
-    </a>
+    <>
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="flex items-center gap-2 break-all text-xs underline"
+      >
+        <FileText className="h-4 w-4 shrink-0" />
+        Abrir {name}
+      </a>
+      <button
+        type="button"
+        className="ml-2 text-xs underline"
+        aria-label={`Salvar ${name}`}
+        onClick={() => void saveChatAttachment(href, name)}
+      >
+        Salvar
+      </button>
+    </>
   ) : (
     <span className="text-xs">Carregando arquivo protegido...</span>
   );
@@ -56,6 +69,7 @@ const GroupChatPanel = ({ groupId, groupName }: GroupChatPanelProps) => {
 
   const [text, setText] = useState('');
   const [uploadingImage, setUploadingImage] = useState(false);
+  const [enlargedImage, setEnlargedImage] = useState<string | null>(null);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -212,7 +226,8 @@ const GroupChatPanel = ({ groupId, groupName }: GroupChatPanelProps) => {
                   <SafeChatImage
                     src={msg.attachment_url}
                     alt="Imagem enviada no grupo"
-                    className="max-h-56 max-w-full rounded-xl object-cover"
+                    onClick={() => setEnlargedImage(msg.attachment_url)}
+                    className="max-h-56 max-w-full cursor-zoom-in rounded-xl object-cover"
                   />
                 )}
 
@@ -226,7 +241,7 @@ const GroupChatPanel = ({ groupId, groupName }: GroupChatPanelProps) => {
             )}
 
             <p className={cn('whitespace-pre-wrap break-words', msg.deleted && 'italic')}>
-              {msg.content}
+              <ChatRichText text={msg.content || ''} />
             </p>
 
             <div className="mt-1 flex items-center gap-1">
@@ -362,6 +377,25 @@ const GroupChatPanel = ({ groupId, groupName }: GroupChatPanelProps) => {
           <Send className="h-4 w-4" />
         </Button>
       </div>
+      {/* Chat image enlarged modal */}
+      <Dialog
+        open={Boolean(enlargedImage)}
+        onOpenChange={(opened) => {
+          if (!opened) setEnlargedImage(null);
+        }}
+      >
+        <DialogContent className="max-h-[90vh] max-w-[95vw] p-2">
+          <DialogTitle className="sr-only">Imagem ampliada</DialogTitle>
+          <DialogDescription className="sr-only">Imagem enviada no chat de grupo</DialogDescription>
+          {enlargedImage && (
+            <SafeChatImage
+              src={enlargedImage}
+              alt="Imagem ampliada"
+              className="max-h-[85vh] w-full rounded-xl object-contain"
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

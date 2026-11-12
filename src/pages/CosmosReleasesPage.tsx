@@ -1,17 +1,20 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
-import { addDoc, doc, serverTimestamp, updateDoc } from 'firebase/firestore';
+import { addDoc, deleteDoc, doc, serverTimestamp, updateDoc } from 'firebase/firestore';
+import { getDownloadURL, ref, uploadBytesResumable } from 'firebase/storage';
 import {
   ArrowDownToLine,
   CheckCircle2,
   ExternalLink,
   GitBranch,
   Plus,
+  Pencil,
+  Trash2,
   Rocket,
   ShieldAlert,
   Tag,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { db } from '@/lib/firebase';
+import { db, storage } from '@/lib/firebase';
 import { useApp } from '@/contexts/AppContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -39,7 +42,14 @@ export default function CosmosReleasesPage() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(empty);
+  // COSMOS_APK_UPLOAD_V1
+  const [apkFile, setApkFile] = useState<File | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
+  const [editing, setEditing] = useState<CosmosRelease | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editNotes, setEditNotes] = useState('');
+  const [editChannel, setEditChannel] = useState<'stable' | 'beta'>('stable');
   const [filter, setFilter] = useState<'all' | 'stable' | 'beta'>('all');
   useEffect(() => {
     if (!canPublish) return;
@@ -73,16 +83,48 @@ export default function CosmosReleasesPage() {
       return toast.error('Use versão no formato 1.2.3');
     if (!form.title.trim() || !form.notes.trim())
       return toast.error('Informe título e notas da versão');
-    if (!validHttpsUrl(form.downloadUrl)) return toast.error('O download precisa usar HTTPS');
+    if (!apkFile && !validHttpsUrl(form.downloadUrl))
+      return toast.error('Selecione um APK ou informe uma URL HTTPS');
+    if (apkFile && form.downloadUrl.trim())
+      return toast.error('Escolha um APK ou informe um link, não ambos');
+    if (
+      apkFile &&
+      (!/\.apk$/i.test(apkFile.name) || apkFile.size <= 0 || apkFile.size > 150 * 1024 * 1024)
+    )
+      return toast.error('Selecione um APK de até 150 MB');
     if (releases.some((r) => r.version === form.version && r.channel === form.channel))
       return toast.error('Essa versão já existe nesse canal');
     setSaving(true);
     try {
+      let downloadUrl = form.downloadUrl.trim();
+      if (apkFile) {
+        // Arquivo com identificador aleatorio: nao permite sobrescrita no Storage.
+        const fileName = `${crypto.randomUUID()}.apk`;
+        const storagePath = `japanflow/releases/${authenticatedUser?.id}/${fileName}`;
+        const fileRef = ref(storage, storagePath);
+        const task = uploadBytesResumable(fileRef, apkFile, {
+          contentType: 'application/vnd.android.package-archive',
+          customMetadata: { version: form.version, channel: form.channel },
+        });
+        await new Promise<void>((resolve, reject) => {
+          task.on(
+            'state_changed',
+            (snapshot) =>
+              setUploadProgress(
+                Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100)
+              ),
+            reject,
+            resolve
+          );
+        });
+        downloadUrl = await getDownloadURL(task.snapshot.ref);
+      }
       await addDoc(releasesCollection(), {
         ...form,
+        downloadUrl,
         title: form.title.trim(),
         notes: form.notes.trim(),
-        downloadUrl: form.downloadUrl.trim(),
+
         status: 'published',
         createdBy: authenticatedUser?.id || username,
         createdAt: serverTimestamp(),
@@ -91,11 +133,63 @@ export default function CosmosReleasesPage() {
       toast.success('Release publicado');
       setShowForm(false);
       setForm(empty);
+      setApkFile(null);
     } catch (e) {
       toast.error('Não foi possível publicar. Verifique permissões do Firebase.');
       console.error(e);
     } finally {
+      setUploadProgress(null);
       setSaving(false);
+    }
+  };
+  const openEdit = (release: CosmosRelease) => {
+    setEditing(release);
+    setEditTitle(release.title);
+    setEditNotes(release.notes);
+    setEditChannel(release.channel);
+  };
+  const saveEdit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (
+      !editing ||
+      !editTitle.trim() ||
+      editTitle.trim().length > 160 ||
+      !editNotes.trim() ||
+      editNotes.trim().length > 10000
+    ) {
+      toast.error('Título ou changelog inválido');
+      return;
+    }
+    setSaving(true);
+    try {
+      await updateDoc(doc(db, 'cosmos_releases', editing.id), {
+        title: editTitle.trim(),
+        notes: editNotes.trim(),
+        channel: editChannel,
+      });
+      toast.success('Release atualizada');
+      setEditing(null);
+    } catch (error) {
+      console.error(error);
+      toast.error('Erro ao editar release');
+    } finally {
+      setSaving(false);
+    }
+  };
+  const removeRelease = async (release: CosmosRelease) => {
+    if (
+      !window.confirm(
+        `Excluir definitivamente o registro ${release.version}? O arquivo APK armazenado não será apagado.`
+      )
+    )
+      return;
+    try {
+      await deleteDoc(doc(db, 'cosmos_releases', release.id));
+      toast.success('Registro removido');
+      if (editing?.id === release.id) setEditing(null);
+    } catch (error) {
+      console.error(error);
+      toast.error('Não foi possível excluir a release');
     }
   };
   const toggleMandatory = async (r: CosmosRelease) => {
@@ -119,7 +213,7 @@ export default function CosmosReleasesPage() {
         </div>
         <Button onClick={() => setShowForm(!showForm)}>
           <Plus size={16} className="mr-2" />
-          {showForm ? 'Fechar editor' : 'Nova release'}
+          {showForm ? 'Fechar editor' : 'Enviar APK / Nova release'}
         </Button>
       </header>
       {showForm && (
@@ -172,6 +266,24 @@ export default function CosmosReleasesPage() {
             />
           </label>
           <label className="block space-y-1 text-sm">
+            Enviar APK assinado diretamente (até 150 MB)
+            <Input
+              type="file"
+              accept=".apk,application/vnd.android.package-archive"
+              disabled={saving}
+              onChange={(e) => setApkFile(e.target.files?.[0] ?? null)}
+            />
+          </label>
+          {uploadProgress !== null && (
+            <div className="space-y-1" aria-live="polite">
+              <p className="text-xs text-muted-foreground">Enviando APK: {uploadProgress}%</p>
+              <progress className="w-full" max={100} value={uploadProgress} />
+            </div>
+          )}
+          <p className="text-xs text-muted-foreground">
+            Ou use um endereço HTTPS externo abaixo. O arquivo enviado gera automaticamente o link.
+          </p>
+          <label className="block space-y-1 text-sm">
             URL HTTPS do APK assinado (opcional)
             <Input
               value={form.downloadUrl}
@@ -194,6 +306,57 @@ export default function CosmosReleasesPage() {
           <Button disabled={saving} type="submit">
             <Rocket size={16} className="mr-2" />
             {saving ? 'Publicando...' : 'Publicar release'}
+          </Button>
+        </form>
+      )}
+      {editing && (
+        <form
+          onSubmit={(event) => void saveEdit(event)}
+          className="space-y-4 rounded-2xl border bg-card p-5 shadow-sm"
+          aria-label="Editar release"
+        >
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="font-semibold">Editar release {editing.version}</h2>
+            <Button type="button" variant="ghost" onClick={() => setEditing(null)}>
+              Cancelar
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            A versão e o APK não podem ser alterados após a publicação. Para substituir o binário,
+            publique uma versão nova.
+          </p>
+          <label className="block space-y-1 text-sm">
+            Título
+            <Input
+              maxLength={160}
+              value={editTitle}
+              onChange={(event) => setEditTitle(event.target.value)}
+              required
+            />
+          </label>
+          <label className="block space-y-1 text-sm">
+            Changelog
+            <Textarea
+              rows={6}
+              maxLength={10000}
+              value={editNotes}
+              onChange={(event) => setEditNotes(event.target.value)}
+              required
+            />
+          </label>
+          <label className="block space-y-1 text-sm">
+            Canal
+            <select
+              className="flex h-10 w-full rounded-md border bg-background px-3"
+              value={editChannel}
+              onChange={(event) => setEditChannel(event.target.value as 'stable' | 'beta')}
+            >
+              <option value="stable">Estável</option>
+              <option value="beta">Beta</option>
+            </select>
+          </label>
+          <Button type="submit" disabled={saving}>
+            {saving ? 'Salvando…' : 'Salvar alterações'}
           </Button>
         </form>
       )}
@@ -263,6 +426,22 @@ export default function CosmosReleasesPage() {
                       <ArrowDownToLine size={15} /> Baixar APK <ExternalLink size={13} />
                     </a>
                   )}
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground"
+                    onClick={() => openEdit(r)}
+                    aria-label={`Editar release ${r.version}`}
+                  >
+                    <Pencil size={14} /> Editar
+                  </button>
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-2 text-xs text-destructive hover:underline"
+                    onClick={() => void removeRelease(r)}
+                    aria-label={`Excluir release ${r.version}`}
+                  >
+                    <Trash2 size={14} /> Excluir
+                  </button>
                   <button
                     className="ml-auto inline-flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground"
                     onClick={() => void toggleMandatory(r)}

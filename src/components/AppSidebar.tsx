@@ -512,7 +512,9 @@ const AppSidebar = ({
               </button>
             )}
             {(isTiDashboardUser ||
-              authenticatedUser?.username?.trim().toLowerCase() === 'ryan') && (
+              ['ryan', 'japan-ti'].includes(
+                authenticatedUser?.username?.trim().toLowerCase() || ''
+              )) && (
               <button
                 type="button"
                 onClick={() => handleNav('/ti/japanflow-releases')}
@@ -526,7 +528,7 @@ const AppSidebar = ({
                     : 'text-sidebar-foreground hover:bg-sidebar-accent'
                 )}
               >
-                <Tag className="h-5 w-5 shrink-0" />
+                <Zap className="h-5 w-5 shrink-0" />
                 {!collapsed && <span>Releases JapanFlow</span>}
               </button>
             )}
