@@ -40,6 +40,7 @@ import {
   UserX,
   UserPlus,
   Navigation,
+  UsersRound,
 } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
@@ -55,7 +56,9 @@ import { uploadImage } from '@/lib/uploadImage';
 import ConfirmActionDialog from '@/components/ConfirmActionDialog';
 import { MotoboyLocationSharing } from '@/components/MotoboyLiveMap';
 import { Link } from 'react-router-dom';
-import RoutePlanner from '@/components/motoboy/RoutePlanner';
+import MotoboyOperationsDashboard from '@/components/motoboy/MotoboyOperationsDashboard';
+import ClientsWorkspace from '@/components/departmental/ClientsWorkspace';
+import ClientLookup from '@/components/departmental/ClientLookup';
 
 const MotoboyTimer = ({ startTime }: { startTime: string }) => {
   const [, setTick] = useState(0);
@@ -85,6 +88,7 @@ const MotoboyTimer = ({ startTime }: { startTime: string }) => {
 const DepartmentalPage = () => {
   const { currentUser, users } = useApp();
   const dept = useDepartmental();
+  const [activeDepartmentTab, setActiveDepartmentTab] = useState<string | null>(null);
   const featPerms = useFeaturePermissions();
   const isAdmin = currentUser?.role === 'admin';
   const userSectors = currentUser?.sectors || [];
@@ -120,6 +124,7 @@ const DepartmentalPage = () => {
     currentUser,
     featPerms.hasFeature(currentUser?.id, 'tracking_warranties')
   );
+  const canSeeClients = true;
 
   // Dialog states
   const [rideUploading, setRideUploading] = useState<string | null>(null);
@@ -135,6 +140,7 @@ const DepartmentalPage = () => {
   const [motoboyLoading, setMotoboyLoading] = useState(false);
   const [enlargedImage, setEnlargedImage] = useState<string | null>(null);
   const [unifyOpen, setUnifyOpen] = useState(false);
+  const [overviewOpen, setOverviewOpen] = useState(false);
   const [confirmAction, setConfirmAction] = useState<{
     title: string;
     description: string;
@@ -157,7 +163,9 @@ const DepartmentalPage = () => {
   if (!currentUser) return null;
 
   const getName = (id: string) => users.find((u) => u.id === id)?.name || id;
-  const motoboys = users.filter((u) => u.sectors?.includes('motoboys' as Sector));
+  const motoboys = users.filter(
+    (u) => u.active !== false && u.sectors?.includes('motoboys' as Sector)
+  );
 
   const resetDialog = () => {
     setDialog(null);
@@ -314,10 +322,6 @@ const DepartmentalPage = () => {
       return;
     }
     const isScheduled = !!form.scheduleEnabled;
-    if (!isScheduled && !form.assignee) {
-      toast.error('Selecione um motoboy');
-      return;
-    }
     let scheduledFor: string | null = null;
     if (isScheduled) {
       if (!form.scheduleDate || !form.scheduleTime) {
@@ -335,12 +339,14 @@ const DepartmentalPage = () => {
     try {
       const value = parseFloat(String(form.rideValue || '0').replace(',', '.')) || 0;
       const desc = form.desc.trim();
-      const assigneeId = form.assignee || currentUser.id;
+      const assigneeId = form.assignee || null;
       const clientName = form.clientName?.trim() || '';
       const location = form.location?.trim() || '';
       const userId = currentUser.id;
       await dept.assignMotoboy(desc, assigneeId, userId, value, clientName, location, scheduledFor);
-      toast.success(isScheduled ? 'Corrida agendada!' : 'Tarefa atribuída');
+      toast.success(
+        assigneeId ? 'Corrida criada e designada!' : 'Corrida criada e disponível para designação!'
+      );
       resetDialog();
     } catch (err: any) {
       toast.error(`Erro ao criar corrida: ${err?.message || 'Tente novamente.'}`);
@@ -358,6 +364,7 @@ const DepartmentalPage = () => {
     canSeeSupplies && { id: 'supplies', label: 'Suprimentos', icon: Wrench },
     canSeeMotoboy && { id: 'motoboy', label: 'Motoboys', icon: Bike },
     canSeeWarranties && { id: 'warranties', label: 'Garantias', icon: Shield },
+    canSeeClients && { id: 'clients', label: 'Clientes', icon: UsersRound },
   ].filter(Boolean) as { id: string; label: string; icon: any }[];
 
   if (availableTabs.length === 0) {
@@ -371,28 +378,34 @@ const DepartmentalPage = () => {
 
   return (
     <div className="space-y-5 md:space-y-6">
-      <section className="jf-surface overflow-hidden p-4 md:p-5">
-        <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">
-              Operação integrada
-            </p>
-            <h1 className="mt-1 text-2xl font-semibold tracking-tight text-foreground md:text-3xl">
-              Módulos Departamentais
-            </h1>
-            <p className="mt-1.5 max-w-2xl text-sm text-muted-foreground">
-              Acesse as rotinas compartilhadas entre os setores conforme suas permissões.
-            </p>
+      {(activeDepartmentTab || availableTabs[0].id) !== 'motoboy' && (
+        <section className="jf-surface overflow-hidden p-4 md:p-5">
+          <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">
+                Operação integrada
+              </p>
+              <h1 className="mt-1 text-2xl font-semibold tracking-tight text-foreground md:text-3xl">
+                Módulos Departamentais
+              </h1>
+              <p className="mt-1.5 max-w-2xl text-sm text-muted-foreground">
+                Acesse as rotinas compartilhadas entre os setores conforme suas permissões.
+              </p>
+            </div>
+
+            <Badge variant="outline" className="w-fit rounded-xl px-3 py-1">
+              {availableTabs.length} módulo{availableTabs.length !== 1 ? 's' : ''} disponível
+              {availableTabs.length !== 1 ? 'is' : ''}
+            </Badge>
           </div>
+        </section>
+      )}
 
-          <Badge variant="outline" className="w-fit rounded-xl px-3 py-1">
-            {availableTabs.length} módulo{availableTabs.length !== 1 ? 's' : ''} disponível
-            {availableTabs.length !== 1 ? 'is' : ''}
-          </Badge>
-        </div>
-      </section>
-
-      <Tabs defaultValue={availableTabs[0].id} className="min-w-0">
+      <Tabs
+        value={activeDepartmentTab || availableTabs[0].id}
+        onValueChange={setActiveDepartmentTab}
+        className="min-w-0"
+      >
         <div className="-mx-1 overflow-x-auto px-1 pb-1">
           <TabsList className="h-auto min-w-max justify-start gap-1">
             {availableTabs.map((tab) => (
@@ -968,771 +981,518 @@ const DepartmentalPage = () => {
 
         {/* Monitoria Motoboys */}
         {canSeeMotoboy && (
-          <TabsContent value="motoboy" className="space-y-4">
-            {canManageMotoboy && (
-              <div className="flex flex-wrap gap-2">
-                <Button size="sm" onClick={() => setDialog('motoboy')}>
-                  <Plus className="w-3 h-3 mr-1" />
-                  Nova Tarefa
-                </Button>
-                <Button size="sm" variant="outline" onClick={() => setUnifyOpen(true)}>
-                  <Layers className="w-3 h-3 mr-1" />
-                  Unificar Corridas
-                </Button>
-                {(isAdmin || currentUser?.id === 'emp-1') && (
-                  <Button size="sm" variant="outline" asChild>
-                    <Link to="/departmental/motoboys/mapa">
-                      <Navigation className="mr-1 h-3.5 w-3.5" /> Mapa de motoboys
-                    </Link>
-                  </Button>
-                )}
-              </div>
-            )}
-            {userSectors.includes('motoboys' as Sector) && (
-              <MotoboyLocationSharing
-                userId={currentUser.id}
-                assignments={dept.motoboyAssignments}
-              />
-            )}
-            <UnifyRidesDialog
-              open={unifyOpen}
-              onOpenChange={setUnifyOpen}
+          <TabsContent value="motoboy" className="min-w-0 space-y-3">
+            <MotoboyOperationsDashboard
               assignments={dept.motoboyAssignments}
+              motoboys={motoboys}
               currentUserId={currentUser.id}
-              getName={getName}
+              canManage={canManageMotoboy}
+              onCreateRide={() => setDialog('motoboy')}
+              onDesignateRide={(id, riderId) => dept.designateMotoboyRide(id, riderId)}
+              onReassignRide={(id, riderId) =>
+                dept.updateMotoboyAssignment(id, { assignedTo: riderId })
+              }
+              isMotoboyOnly={
+                !isAdmin &&
+                userSectors.includes('motoboys' as Sector) &&
+                !userSectors.includes('expedicao' as Sector)
+              }
+              onOpenOverview={() => setOverviewOpen(true)}
             />
+            <Dialog open={overviewOpen} onOpenChange={setOverviewOpen}>
+              <DialogContent className="max-h-[92vh] max-w-6xl overflow-hidden p-0">
+                <DialogHeader className="border-b border-border px-5 py-4">
+                  <DialogTitle>Visão geral das corridas</DialogTitle>
+                </DialogHeader>
+                <div className="max-h-[80vh] overflow-y-auto px-5 pb-5 pt-4">
+                  <div className="min-w-0 space-y-4">
+                    {canManageMotoboy && (
+                      <div className="flex flex-wrap gap-2">
+                        <Button size="sm" variant="outline" onClick={() => setUnifyOpen(true)}>
+                          <Layers className="w-3 h-3 mr-1" />
+                          Unificar Corridas
+                        </Button>
+                      </div>
+                    )}
+                    {userSectors.includes('motoboys' as Sector) && (
+                      <MotoboyLocationSharing
+                        userId={currentUser.id}
+                        assignments={dept.motoboyAssignments}
+                      />
+                    )}
+                    <UnifyRidesDialog
+                      open={unifyOpen}
+                      onOpenChange={setUnifyOpen}
+                      assignments={dept.motoboyAssignments}
+                      currentUserId={currentUser.id}
+                      getName={getName}
+                    />
 
-            {canManageMotoboy && (
-              <RoutePlanner assignments={dept.motoboyAssignments} motoboys={motoboys} />
-            )}
+                    {/* Corridas anteriores marcadas pending_approval sao tratadas pela fila nova.
+                Nao existe mais etapa de aprovacao para corridas criadas. */}
 
-            {/* Pending approval section for Patricia / admins */}
-            {canManageMotoboy &&
-              (() => {
-                const pendingApproval = dept.motoboyAssignments.filter(
-                  (a) => a.status === 'pending_approval'
-                );
-                if (pendingApproval.length === 0) return null;
-                return (
-                  <div className="space-y-3 rounded-2xl border border-warning/30 bg-warning/5 p-4">
-                    <h4 className="text-sm font-semibold flex items-center gap-1.5 text-amber-700 dark:text-amber-400">
-                      <Clock className="w-3.5 h-3.5" />
-                      Aguardando Aprovação ({pendingApproval.length})
-                    </h4>
-                    {pendingApproval.map((ma) => {
-                      const fmtSchedule = (iso: string) => {
-                        const d = new Date(iso);
-                        return d.toLocaleString('pt-BR', {
-                          day: '2-digit',
-                          month: '2-digit',
-                          year: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        });
-                      };
+                    {/* Search and filters */}
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <div className="relative flex-1">
+                        <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          placeholder="Buscar por cliente, local ou descrição..."
+                          value={motoboySearch}
+                          onChange={(e) => setMotoboySearch(e.target.value)}
+                          className="h-10 pl-9 text-sm"
+                        />
+                        {motoboySearch && (
+                          <button
+                            onClick={() => setMotoboySearch('')}
+                            className="absolute right-3 top-3"
+                          >
+                            <X className="h-4 w-4 text-muted-foreground" />
+                          </button>
+                        )}
+                      </div>
+                      <Input
+                        type="date"
+                        value={motoboyFilterDate}
+                        onChange={(e) => setMotoboyFilterDate(e.target.value)}
+                        className="h-10 w-full text-sm sm:w-40"
+                      />
+                      {motoboyFilterDate !== new Date().toISOString().split('T')[0] && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() =>
+                            setMotoboyFilterDate(new Date().toISOString().split('T')[0])
+                          }
+                          className="h-9 text-xs"
+                        >
+                          Hoje
+                        </Button>
+                      )}
+                      {!userSectors.includes('motoboys' as Sector) || isAdmin ? (
+                        <Select value={motoboyFilterUser} onValueChange={setMotoboyFilterUser}>
+                          <SelectTrigger className="h-10 w-full text-xs sm:w-48">
+                            <SelectValue placeholder="Todos os motoboys" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">Todos os Motoboys</SelectItem>
+                            <SelectItem value="unassigned">⚠️ Sem Atribuição</SelectItem>
+                            {motoboys.map((m) => (
+                              <SelectItem key={m.id} value={m.id}>
+                                {m.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : null}
+                    </div>
+
+                    {(() => {
+                      const isMotoboy =
+                        userSectors.includes('motoboys' as Sector) &&
+                        !isAdmin &&
+                        !userSectors.includes('expedicao' as Sector);
+                      let visibleAssignments = isMotoboy
+                        ? dept.motoboyAssignments.filter(
+                            (ma) =>
+                              (ma.assignedTo === currentUser.id || ma.assignedTo === null) &&
+                              ma.status !== 'pending_approval'
+                          )
+                        : dept.motoboyAssignments.filter((ma) => ma.status !== 'pending_approval');
+
+                      // Apply filters
+                      if (motoboyFilterUser !== 'all') {
+                        if (motoboyFilterUser === 'unassigned')
+                          visibleAssignments = visibleAssignments.filter(
+                            (a) => a.assignedTo === null
+                          );
+                        else
+                          visibleAssignments = visibleAssignments.filter(
+                            (a) => a.assignedTo === motoboyFilterUser
+                          );
+                      }
+                      if (motoboySearch.trim()) {
+                        const q = motoboySearch.toLowerCase();
+                        visibleAssignments = visibleAssignments.filter(
+                          (a) =>
+                            a.description.toLowerCase().includes(q) ||
+                            (a.clientName || '').toLowerCase().includes(q) ||
+                            (a.location || '').toLowerCase().includes(q)
+                        );
+                      }
+                      if (motoboyFilterDate)
+                        visibleAssignments = visibleAssignments.filter(
+                          (a) => a.createdAt.split('T')[0] === motoboyFilterDate
+                        );
+
+                      // Group by motoboy (use 'unassigned' bucket for null)
+                      const grouped: Record<string, typeof visibleAssignments> = {};
+                      visibleAssignments.forEach((ma) => {
+                        const key = ma.assignedTo ?? 'unassigned';
+                        if (!grouped[key]) grouped[key] = [];
+                        grouped[key].push(ma);
+                      });
+                      // Render unassigned bucket first when present
+                      const motoboyIds = Object.keys(grouped).sort((a, b) =>
+                        a === 'unassigned' ? -1 : b === 'unassigned' ? 1 : 0
+                      );
+
+                      if (visibleAssignments.length === 0)
+                        return (
+                          <p className="py-10 text-center text-sm text-muted-foreground">
+                            Nenhuma tarefa encontrada
+                          </p>
+                        );
+
                       return (
                         <div
-                          key={ma.id}
-                          className="bg-card border border-border rounded-lg p-3 text-sm space-y-2"
+                          className={cn(
+                            'grid min-w-0 grid-cols-1 gap-3 lg:gap-4',
+                            motoboyIds.length >= 2 && 'xl:grid-cols-2'
+                          )}
                         >
-                          {ma.scheduledFor && (
-                            <div className="flex items-center gap-1.5 rounded-lg border border-destructive/25 bg-destructive/10 px-2 py-1 text-[11px] font-semibold text-destructive">
-                              <CalendarClock className="w-3.5 h-3.5" />
-                              🔴 CORRIDA AGENDADA — {fmtSchedule(ma.scheduledFor)}
-                            </div>
-                          )}
-                          <div>
-                            <p className="font-medium">{ma.description}</p>
-                            {(() => {
-                              const cleaned = stripOrderInfo(ma.notes);
-                              return cleaned ? (
-                                <p className="text-xs font-medium text-primary">{cleaned}</p>
-                              ) : null;
-                            })()}
-                            <OrderInfoBadges
-                              info={parseOrderInfo(ma.notes)}
-                              size="sm"
-                              className="mt-1"
-                            />
-                            <p className="text-xs text-muted-foreground">
-                              Solicitado por: {getName(ma.assignedBy)}
-                            </p>
-                          </div>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                            <Input
-                              placeholder="Nome do cliente *"
-                              value={form[`approve_client_${ma.id}`] ?? ma.clientName ?? ''}
-                              onChange={(e) =>
-                                setForm((prev: any) => ({
-                                  ...prev,
-                                  [`approve_client_${ma.id}`]: e.target.value,
-                                }))
-                              }
-                              className="h-9 text-xs"
-                            />
-                            <Input
-                              placeholder="Localização *"
-                              value={form[`approve_location_${ma.id}`] ?? ma.location ?? ''}
-                              onChange={(e) =>
-                                setForm((prev: any) => ({
-                                  ...prev,
-                                  [`approve_location_${ma.id}`]: e.target.value,
-                                }))
-                              }
-                              className="h-9 text-xs"
-                            />
-                            <Input
-                              type="number"
-                              placeholder="Valor (R$) - opcional"
-                              value={
-                                form[`approve_value_${ma.id}`] ??
-                                (ma.rideValue > 0 ? String(ma.rideValue) : '')
-                              }
-                              onChange={(e) =>
-                                setForm((prev: any) => ({
-                                  ...prev,
-                                  [`approve_value_${ma.id}`]: e.target.value,
-                                }))
-                              }
-                              className="h-9 text-xs"
-                            />
-                            <Select
-                              value={form[`approve_motoboy_${ma.id}`] || ''}
-                              onValueChange={(v) =>
-                                setForm((prev: any) => ({
-                                  ...prev,
-                                  [`approve_motoboy_${ma.id}`]: v,
-                                }))
-                              }
-                            >
-                              <SelectTrigger className="h-9 text-xs">
-                                <SelectValue placeholder="Selecionar motoboy *" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {motoboys.map((m) => (
-                                  <SelectItem key={m.id} value={m.id}>
-                                    {m.name}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          <div className="flex items-center justify-between rounded-md border border-border px-2 py-1.5">
-                            <Label
-                              htmlFor={`sched-${ma.id}`}
-                              className="flex items-center gap-1.5 text-xs cursor-pointer"
-                            >
-                              <CalendarClock className="w-3.5 h-3.5 text-destructive" />
-                              {ma.scheduledFor ? 'Reagendar' : 'Agendar'}
-                            </Label>
-                            <Switch
-                              id={`sched-${ma.id}`}
-                              checked={!!form[`approve_sched_enabled_${ma.id}`]}
-                              onCheckedChange={(v) =>
-                                setForm((prev: any) => {
-                                  const next = { ...prev, [`approve_sched_enabled_${ma.id}`]: v };
-                                  if (
-                                    v &&
-                                    ma.scheduledFor &&
-                                    !prev[`approve_sched_date_${ma.id}`]
-                                  ) {
-                                    const d = new Date(ma.scheduledFor);
-                                    next[`approve_sched_date_${ma.id}`] = d
-                                      .toISOString()
-                                      .split('T')[0];
-                                    next[`approve_sched_time_${ma.id}`] = d
-                                      .toTimeString()
-                                      .slice(0, 5);
-                                  }
-                                  return next;
-                                })
-                              }
-                            />
-                          </div>
-                          {form[`approve_sched_enabled_${ma.id}`] && (
-                            <div className="grid grid-cols-2 gap-2">
-                              <Input
-                                type="date"
-                                className="h-9 text-xs"
-                                value={form[`approve_sched_date_${ma.id}`] || ''}
-                                onChange={(e) =>
-                                  setForm((prev: any) => ({
-                                    ...prev,
-                                    [`approve_sched_date_${ma.id}`]: e.target.value,
-                                  }))
-                                }
-                              />
-                              <Input
-                                type="time"
-                                className="h-9 text-xs"
-                                value={form[`approve_sched_time_${ma.id}`] || ''}
-                                onChange={(e) =>
-                                  setForm((prev: any) => ({
-                                    ...prev,
-                                    [`approve_sched_time_${ma.id}`]: e.target.value,
-                                  }))
-                                }
-                              />
-                            </div>
-                          )}
-                          <div className="flex items-center gap-1.5 justify-end">
-                            <Button
-                              size="sm"
-                              className="h-8 rounded-lg text-xs"
-                              disabled={
-                                !form[`approve_motoboy_${ma.id}`] ||
-                                !(form[`approve_client_${ma.id}`] ?? ma.clientName ?? '').trim() ||
-                                !(form[`approve_location_${ma.id}`] ?? ma.location ?? '').trim()
-                              }
-                              onClick={async () => {
-                                const selectedMotoboy = form[`approve_motoboy_${ma.id}`];
-                                const clientName = (
-                                  form[`approve_client_${ma.id}`] ??
-                                  ma.clientName ??
-                                  ''
-                                ).trim();
-                                const location = (
-                                  form[`approve_location_${ma.id}`] ??
-                                  ma.location ??
-                                  ''
-                                ).trim();
-                                const rideValue =
-                                  parseFloat(
-                                    form[`approve_value_${ma.id}`] ??
-                                      (ma.rideValue > 0 ? String(ma.rideValue) : '15')
-                                  ) || 15;
-                                if (!selectedMotoboy || !clientName || !location) return;
-
-                                // If scheduling is enabled, keep status as pending_approval and persist scheduled_for
-                                if (form[`approve_sched_enabled_${ma.id}`]) {
-                                  const dateStr = form[`approve_sched_date_${ma.id}`];
-                                  const timeStr = form[`approve_sched_time_${ma.id}`];
-                                  if (!dateStr || !timeStr) {
-                                    toast.error('Informe data e hora do agendamento');
-                                    return;
-                                  }
-                                  const dt = new Date(`${dateStr}T${timeStr}:00`);
-                                  if (isNaN(dt.getTime())) {
-                                    toast.error('Data/hora inválida');
-                                    return;
-                                  }
-                                  await updateDoc(doc(db, 'motoboy_assignments', ma.id), {
-                                    assigned_to: selectedMotoboy,
-                                    status: 'pending_approval',
-                                    client_name: clientName,
-                                    location,
-                                    ride_value: rideValue,
-                                    scheduled_for: Timestamp.fromDate(dt),
-                                    updated_at: Timestamp.now(),
-                                  });
-                                  toast.success('Corrida agendada! Voltará para aprovação.');
-                                } else {
-                                  const approvalIso = new Date().toISOString();
-                                  await updateDoc(doc(db, 'motoboy_assignments', ma.id), {
-                                    assigned_to: selectedMotoboy,
-                                    status: 'pending',
-                                    client_name: clientName,
-                                    location,
-                                    ride_value: rideValue,
-                                    scheduled_for: Timestamp.fromDate(new Date(approvalIso)),
-                                    updated_at: Timestamp.now(),
-                                  });
-                                  const now = new Date().toISOString();
-                                  const deadlineDate = new Date();
-                                  deadlineDate.setHours(23, 59, 59, 999);
-                                  const notesInfo = ma.notes ? `\n${ma.notes}` : '';
-                                  const taskRef = await addDoc(collection(db, 'tasks'), {
-                                    board_visible: true,
-                                    title: `🏍️ Entrega: ${clientName}`,
-                                    description: `${ma.description} • Cliente: ${clientName} • Local: ${location} • Valor: R$ ${rideValue.toFixed(2)}${notesInfo}`,
-                                    status: 'todo',
-                                    priority: 'high',
-                                    assignee_id: selectedMotoboy,
-                                    created_by: currentUser.id,
-                                    deadline: deadlineDate.toISOString().split('T')[0],
-                                    sector: 'motoboys',
-                                    status_history: [{ status: 'todo', enteredAt: now }],
-                                    created_at: Timestamp.now(),
-                                    updated_at: Timestamp.now(),
-                                  });
-
-                                  await updateDoc(doc(db, 'motoboy_assignments', ma.id), {
-                                    task_id: taskRef.id,
-                                    updated_at: Timestamp.now(),
-                                  });
-                                  toast.success('Corrida aprovada e enviada ao motoboy!');
-                                }
-                                setForm((prev: any) => {
-                                  const next = { ...prev };
-                                  delete next[`approve_motoboy_${ma.id}`];
-                                  delete next[`approve_client_${ma.id}`];
-                                  delete next[`approve_location_${ma.id}`];
-                                  delete next[`approve_value_${ma.id}`];
-                                  delete next[`approve_sched_enabled_${ma.id}`];
-                                  delete next[`approve_sched_date_${ma.id}`];
-                                  delete next[`approve_sched_time_${ma.id}`];
-                                  return next;
-                                });
-                              }}
-                            >
-                              <CheckCircle2 className="w-3 h-3 mr-0.5" />
-                              {form[`approve_sched_enabled_${ma.id}`] ? 'Agendar' : 'Aprovar'}
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-7 text-xs text-destructive"
-                              onClick={() =>
-                                setConfirmAction({
-                                  title: 'Recusar corrida',
-                                  description:
-                                    'A corrida será removida da fila de aprovação. Deseja continuar?',
-                                  confirmLabel: 'Recusar',
-                                  destructive: true,
-                                  action: async () => {
-                                    await dept.deleteMotoboyAssignment(ma.id);
-                                    toast.info('Corrida recusada');
-                                  },
-                                })
-                              }
-                            >
-                              <Trash2 className="w-3 h-3" />
-                            </Button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                );
-              })()}
-
-            {/* Search and filters */}
-            <div className="flex flex-col gap-2 sm:flex-row">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Buscar por cliente, local ou descrição..."
-                  value={motoboySearch}
-                  onChange={(e) => setMotoboySearch(e.target.value)}
-                  className="h-10 pl-9 text-sm"
-                />
-                {motoboySearch && (
-                  <button onClick={() => setMotoboySearch('')} className="absolute right-3 top-3">
-                    <X className="h-4 w-4 text-muted-foreground" />
-                  </button>
-                )}
-              </div>
-              <Input
-                type="date"
-                value={motoboyFilterDate}
-                onChange={(e) => setMotoboyFilterDate(e.target.value)}
-                className="h-10 w-full text-sm sm:w-40"
-              />
-              {motoboyFilterDate !== new Date().toISOString().split('T')[0] && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setMotoboyFilterDate(new Date().toISOString().split('T')[0])}
-                  className="h-9 text-xs"
-                >
-                  Hoje
-                </Button>
-              )}
-              {!userSectors.includes('motoboys' as Sector) || isAdmin ? (
-                <Select value={motoboyFilterUser} onValueChange={setMotoboyFilterUser}>
-                  <SelectTrigger className="h-10 w-full text-xs sm:w-48">
-                    <SelectValue placeholder="Todos os motoboys" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Todos os Motoboys</SelectItem>
-                    <SelectItem value="unassigned">⚠️ Sem Atribuição</SelectItem>
-                    {motoboys.map((m) => (
-                      <SelectItem key={m.id} value={m.id}>
-                        {m.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              ) : null}
-            </div>
-
-            {(() => {
-              const isMotoboy =
-                userSectors.includes('motoboys' as Sector) &&
-                !isAdmin &&
-                !userSectors.includes('expedicao' as Sector);
-              let visibleAssignments = isMotoboy
-                ? dept.motoboyAssignments.filter(
-                    (ma) =>
-                      (ma.assignedTo === currentUser.id || ma.assignedTo === null) &&
-                      ma.status !== 'pending_approval'
-                  )
-                : dept.motoboyAssignments.filter((ma) => ma.status !== 'pending_approval');
-
-              // Apply filters
-              if (motoboyFilterUser !== 'all') {
-                if (motoboyFilterUser === 'unassigned')
-                  visibleAssignments = visibleAssignments.filter((a) => a.assignedTo === null);
-                else
-                  visibleAssignments = visibleAssignments.filter(
-                    (a) => a.assignedTo === motoboyFilterUser
-                  );
-              }
-              if (motoboySearch.trim()) {
-                const q = motoboySearch.toLowerCase();
-                visibleAssignments = visibleAssignments.filter(
-                  (a) =>
-                    a.description.toLowerCase().includes(q) ||
-                    (a.clientName || '').toLowerCase().includes(q) ||
-                    (a.location || '').toLowerCase().includes(q)
-                );
-              }
-              if (motoboyFilterDate)
-                visibleAssignments = visibleAssignments.filter(
-                  (a) => a.createdAt.split('T')[0] === motoboyFilterDate
-                );
-
-              // Group by motoboy (use 'unassigned' bucket for null)
-              const grouped: Record<string, typeof visibleAssignments> = {};
-              visibleAssignments.forEach((ma) => {
-                const key = ma.assignedTo ?? 'unassigned';
-                if (!grouped[key]) grouped[key] = [];
-                grouped[key].push(ma);
-              });
-              // Render unassigned bucket first when present
-              const motoboyIds = Object.keys(grouped).sort((a, b) =>
-                a === 'unassigned' ? -1 : b === 'unassigned' ? 1 : 0
-              );
-
-              if (visibleAssignments.length === 0)
-                return (
-                  <p className="py-10 text-center text-sm text-muted-foreground">
-                    Nenhuma tarefa encontrada
-                  </p>
-                );
-
-              return (
-                <div
-                  className={cn(
-                    'grid min-w-0 grid-cols-1 gap-3 lg:gap-4',
-                    motoboyIds.length >= 2 && 'xl:grid-cols-2'
-                  )}
-                >
-                  {motoboyIds.map((motoboyId) => {
-                    const isUnassignedGroup = motoboyId === 'unassigned';
-                    return (
-                      <div
-                        key={motoboyId}
-                        className={cn(
-                          'min-w-0 space-y-2 overflow-hidden rounded-xl border border-border/60 bg-muted/10 p-2.5 sm:p-3',
-                          isUnassignedGroup && 'border-warning/35 bg-warning/5'
-                        )}
-                      >
-                        <h4 className="text-sm font-semibold flex items-center gap-1.5 border-b border-border pb-1">
-                          <Bike
-                            className={cn(
-                              'w-3.5 h-3.5',
-                              isUnassignedGroup ? 'text-warning' : 'text-primary'
-                            )}
-                          />
-                          {isUnassignedGroup
-                            ? '⚠️ Sem Atribuição (Disponível para Redistribuição)'
-                            : getName(motoboyId)}
-                          <span className="text-xs text-muted-foreground font-normal ml-auto">
-                            {grouped[motoboyId].length} corrida(s)
-                          </span>
-                        </h4>
-                        <div className="grid gap-1.5 sm:grid-cols-1 xl:grid-cols-2">
-                          {grouped[motoboyId].map((ma) => {
-                            const assignedMs = Date.now() - new Date(ma.createdAt).getTime();
-                            const isIdle = ma.status !== 'completed' && assignedMs > 20 * 60000;
-                            const formatTime = (iso: string | null) =>
-                              iso
-                                ? new Date(iso).toLocaleTimeString('pt-BR', {
-                                    hour: '2-digit',
-                                    minute: '2-digit',
-                                  })
-                                : '--:--';
+                          {motoboyIds.map((motoboyId) => {
+                            const isUnassignedGroup = motoboyId === 'unassigned';
                             return (
                               <div
-                                key={ma.id}
+                                key={motoboyId}
                                 className={cn(
-                                  'jf-interactive min-w-0 rounded-lg border border-border/70 bg-card px-2.5 py-2 text-xs hover:bg-muted/20',
-                                  isIdle && 'ring-1 ring-destructive/50'
+                                  'min-w-0 space-y-2 overflow-hidden rounded-xl border border-border/60 bg-muted/10 p-2.5 sm:p-3',
+                                  isUnassignedGroup && 'border-warning/35 bg-warning/5'
                                 )}
                               >
-                                <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
-                                  <p className="font-medium truncate leading-tight">
-                                    {ma.description}
-                                  </p>
-                                  <span
+                                <h4 className="text-sm font-semibold flex items-center gap-1.5 border-b border-border pb-1">
+                                  <Bike
                                     className={cn(
-                                      'text-[9px] px-1.5 py-0.5 rounded-full whitespace-nowrap shrink-0',
-                                      ma.status === 'completed'
-                                        ? 'bg-success/20 text-success'
-                                        : ma.status === 'pending'
-                                          ? 'bg-warning/20 text-warning'
-                                          : 'bg-primary/20 text-primary'
+                                      'w-3.5 h-3.5',
+                                      isUnassignedGroup ? 'text-warning' : 'text-primary'
                                     )}
-                                  >
-                                    {ma.status === 'completed'
-                                      ? 'OK'
-                                      : ma.status === 'pending'
-                                        ? 'Pend.'
-                                        : 'Exec.'}
+                                  />
+                                  {isUnassignedGroup
+                                    ? '⚠️ Sem Atribuição (Disponível para Redistribuição)'
+                                    : getName(motoboyId)}
+                                  <span className="text-xs text-muted-foreground font-normal ml-auto">
+                                    {grouped[motoboyId].length} corrida(s)
                                   </span>
-                                </div>
-                                {(() => {
-                                  const cleaned = stripOrderInfo(ma.notes);
-                                  return cleaned ? (
-                                    <p className="text-muted-foreground truncate font-medium">
-                                      📋 {cleaned}
-                                    </p>
-                                  ) : null;
-                                })()}
-                                <OrderInfoBadges
-                                  info={parseOrderInfo(ma.notes)}
-                                  size="xs"
-                                  className="mt-0.5"
-                                />
-                                {ma.clientName && (
-                                  <p className="text-muted-foreground truncate">
-                                    👤 {ma.clientName}
-                                  </p>
-                                )}
-                                {ma.location && (
-                                  <p className="text-muted-foreground truncate">📍 {ma.location}</p>
-                                )}
-                                {ma.rideValue > 0 && (
-                                  <p className="font-semibold text-primary">
-                                    {ma.rideValue.toLocaleString('pt-BR', {
-                                      style: 'currency',
-                                      currency: 'BRL',
-                                    })}
-                                  </p>
-                                )}
-                                <div className="text-[9px] text-muted-foreground mt-0.5 space-y-0">
-                                  <span>
-                                    📌{formatTime(ma.createdAt)} ✅{formatTime(ma.completedAt)}
-                                  </span>
-                                </div>
-                                {ma.status !== 'completed' && (
-                                  <div
-                                    className={cn(
-                                      'flex items-center gap-1 text-[10px]',
-                                      isIdle
-                                        ? 'text-destructive font-semibold'
-                                        : 'text-muted-foreground'
-                                    )}
-                                  >
-                                    <Clock className="w-2.5 h-2.5" />
-                                    <MotoboyTimer startTime={ma.acceptedAt || ma.createdAt} />
-                                    {isIdle && (
-                                      <AlertTriangle className="w-2.5 h-2.5 animate-pulse" />
-                                    )}
-                                  </div>
-                                )}
-                                <div className="mt-3 flex min-w-0 flex-wrap gap-2">
-                                  {ma.assignedTo === null &&
-                                    (userSectors.includes('motoboys' as Sector) ||
-                                      canManageMotoboy) && (
-                                      <Button
-                                        size="sm"
-                                        variant="default"
-                                        className="h-5 text-[9px] px-1.5"
-                                        onClick={async () => {
-                                          await dept.updateMotoboyAssignment(ma.id, {
-                                            assignedTo: currentUser.id,
-                                          });
-                                          toast.success('Corrida atribuída a você');
-                                        }}
-                                      >
-                                        <UserPlus className="w-2.5 h-2.5 mr-0.5" />
-                                        Pegar Corrida
-                                      </Button>
-                                    )}
-                                  {ma.status === 'pending' &&
-                                    ma.assignedTo &&
-                                    (currentUser.id === ma.assignedTo || isAdmin) && (
-                                      <Button
-                                        size="sm"
-                                        variant="outline"
-                                        className="h-5 text-[9px] px-1.5"
-                                        onClick={() => dept.updateMotoboyStatus(ma.id, 'accepted')}
-                                      >
-                                        <Play className="w-2.5 h-2.5 mr-0.5" />
-                                        Iniciar
-                                      </Button>
-                                    )}
-                                  {ma.status === 'accepted' &&
-                                    (currentUser.id === ma.assignedTo || isAdmin) && (
-                                      <label
+                                </h4>
+                                <div className="grid gap-1.5 sm:grid-cols-1 xl:grid-cols-2">
+                                  {grouped[motoboyId].map((ma) => {
+                                    const assignedMs =
+                                      Date.now() - new Date(ma.createdAt).getTime();
+                                    const isIdle =
+                                      ma.status !== 'completed' && assignedMs > 20 * 60000;
+                                    const formatTime = (iso: string | null) =>
+                                      iso
+                                        ? new Date(iso).toLocaleTimeString('pt-BR', {
+                                            hour: '2-digit',
+                                            minute: '2-digit',
+                                          })
+                                        : '--:--';
+                                    return (
+                                      <div
+                                        key={ma.id}
                                         className={cn(
-                                          'inline-flex min-h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-lg border bg-primary px-3 py-2 text-sm font-medium text-primary-foreground sm:w-auto',
-                                          rideUploading === ma.id &&
-                                            'pointer-events-none opacity-60'
+                                          'jf-interactive min-w-0 rounded-lg border border-border/70 bg-card px-2.5 py-2 text-xs hover:bg-muted/20',
+                                          isIdle && 'ring-1 ring-destructive/50'
                                         )}
                                       >
-                                        <CheckCircle2 className="h-4 w-4" />
-                                        {rideUploading === ma.id
-                                          ? 'Enviando comprovante...'
-                                          : 'Fotografar notinha assinada'}
-                                        <input
-                                          type="file"
-                                          accept="image/*"
-                                          capture="environment"
-                                          className="sr-only"
-                                          disabled={rideUploading !== null}
-                                          aria-label="Foto da notinha assinada para finalizar a corrida"
-                                          onChange={async (event) => {
-                                            const file = event.currentTarget.files?.[0];
-                                            event.currentTarget.value = '';
-                                            if (!file) return;
-                                            if (!file.type.startsWith('image/')) {
-                                              toast.error(
-                                                'Selecione uma foto da notinha assinada.'
-                                              );
-                                              return;
-                                            }
-                                            setRideUploading(ma.id);
-                                            try {
-                                              const { publicUrl } = await uploadImage(file, {
-                                                pathPrefix: 'receipts',
-                                                sourceTable: 'motoboy_assignments',
-                                                sourceId: ma.id,
-                                                sourceField: 'notes',
-                                                uploadedBy: currentUser.id,
-                                              });
-                                              if (!publicUrl)
-                                                throw new Error('Comprovante sem referência');
-                                              await dept.updateMotoboyStatus(
-                                                ma.id,
-                                                'completed',
-                                                ma.notes
-                                                  ? `${ma.notes}\nCupom: ${publicUrl}`
-                                                  : `Cupom: ${publicUrl}`,
-                                                publicUrl
-                                              );
-                                              toast.success(
-                                                'Foto registrada. Corrida contabilizada como entregue!'
-                                              );
-                                            } catch (error) {
-                                              console.error(
-                                                '[motoboy] falha ao concluir corrida',
-                                                error
-                                              );
-                                              toast.error(
-                                                'Não foi possível concluir. A corrida permanece em aberto; tente novamente.'
-                                              );
-                                            } finally {
-                                              setRideUploading(null);
-                                            }
-                                          }}
+                                        <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
+                                          <p className="font-medium truncate leading-tight">
+                                            {ma.description}
+                                          </p>
+                                          <span
+                                            className={cn(
+                                              'text-[9px] px-1.5 py-0.5 rounded-full whitespace-nowrap shrink-0',
+                                              ma.status === 'completed'
+                                                ? 'bg-success/20 text-success'
+                                                : ma.status === 'pending'
+                                                  ? 'bg-warning/20 text-warning'
+                                                  : 'bg-primary/20 text-primary'
+                                            )}
+                                          >
+                                            {ma.status === 'completed'
+                                              ? 'OK'
+                                              : ma.status === 'pending'
+                                                ? 'Pend.'
+                                                : 'Exec.'}
+                                          </span>
+                                        </div>
+                                        {(() => {
+                                          const cleaned = stripOrderInfo(ma.notes);
+                                          return cleaned ? (
+                                            <p className="text-muted-foreground truncate font-medium">
+                                              📋 {cleaned}
+                                            </p>
+                                          ) : null;
+                                        })()}
+                                        <OrderInfoBadges
+                                          info={parseOrderInfo(ma.notes)}
+                                          size="xs"
+                                          className="mt-0.5"
                                         />
-                                      </label>
-                                    )}
-                                  {canManageMotoboy && ma.proofUrl && (
-                                    <Button
-                                      type="button"
-                                      size="sm"
-                                      variant="outline"
-                                      className="min-h-9 text-xs"
-                                      onClick={() => setEnlargedImage(ma.proofUrl)}
-                                    >
-                                      <Receipt className="mr-1 h-3.5 w-3.5" /> Visualizar notinha
-                                    </Button>
-                                  )}
-                                  {canManageMotoboy && (
-                                    <Button
-                                      size="sm"
-                                      variant="outline"
-                                      className="h-5 text-[9px] px-1.5"
-                                      onClick={() => {
-                                        setForm((prev: any) => {
-                                          const baseDt = ma.scheduledFor || ma.createdAt;
-                                          const d = baseDt ? new Date(baseDt) : new Date();
-                                          const pad = (n: number) => String(n).padStart(2, '0');
-                                          const editDate = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-                                          const editTime = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-                                          return {
-                                            ...prev,
-                                            editId: ma.id,
-                                            editDesc: ma.description,
-                                            editClient: ma.clientName || '',
-                                            editLocation: ma.location || '',
-                                            editValue: ma.rideValue > 0 ? String(ma.rideValue) : '',
-                                            editNotes: ma.notes || '',
-                                            editAssignee: ma.assignedTo,
-                                            editDate,
-                                            editTime,
-                                          };
-                                        });
-                                        setDialog('editMotoboy');
-                                      }}
-                                    >
-                                      <Pencil className="w-2.5 h-2.5 mr-0.5" />
-                                      Editar
-                                    </Button>
-                                  )}
-                                  {canManageMotoboy &&
-                                    ma.assignedTo &&
-                                    ma.status !== 'completed' && (
-                                      <Button
-                                        size="sm"
-                                        variant="outline"
-                                        className="h-5 text-[9px] px-1.5 text-warning hover:text-warning"
-                                        onClick={() =>
-                                          setConfirmAction({
-                                            title: 'Desatribuir corrida',
-                                            description:
-                                              'A corrida será retirada do motoboy e voltará para a fila de redistribuição.',
-                                            confirmLabel: 'Desatribuir',
-                                            action: async () => {
-                                              await dept.unassignMotoboy(ma.id);
-                                              toast.success(
-                                                'Corrida desatribuída — disponível para redistribuição'
-                                              );
-                                            },
-                                          })
-                                        }
-                                      >
-                                        <UserX className="w-2.5 h-2.5 mr-0.5" />
-                                        Desatribuir
-                                      </Button>
-                                    )}
-                                  {canManageMotoboy && (
-                                    <Button
-                                      size="sm"
-                                      variant="outline"
-                                      className="h-5 text-[9px] px-1.5 text-destructive hover:text-destructive"
-                                      onClick={() =>
-                                        setConfirmAction({
-                                          title: 'Excluir corrida',
-                                          description:
-                                            'Esta corrida será removida definitivamente do JapanFlow.',
-                                          confirmLabel: 'Excluir',
-                                          destructive: true,
-                                          action: async () => {
-                                            await dept.deleteMotoboyAssignment(ma.id);
-                                            toast.success('Corrida excluída');
-                                          },
-                                        })
-                                      }
-                                    >
-                                      <Trash2 className="w-2.5 h-2.5" />
-                                    </Button>
-                                  )}
+                                        {ma.clientName && (
+                                          <p className="text-muted-foreground truncate">
+                                            👤 {ma.clientName}
+                                          </p>
+                                        )}
+                                        {ma.location && (
+                                          <p className="text-muted-foreground truncate">
+                                            📍 {ma.location}
+                                          </p>
+                                        )}
+                                        {ma.rideValue > 0 && (
+                                          <p className="font-semibold text-primary">
+                                            {ma.rideValue.toLocaleString('pt-BR', {
+                                              style: 'currency',
+                                              currency: 'BRL',
+                                            })}
+                                          </p>
+                                        )}
+                                        <div className="text-[9px] text-muted-foreground mt-0.5 space-y-0">
+                                          <span>
+                                            📌{formatTime(ma.createdAt)} ✅
+                                            {formatTime(ma.completedAt)}
+                                          </span>
+                                        </div>
+                                        {ma.status !== 'completed' && (
+                                          <div
+                                            className={cn(
+                                              'flex items-center gap-1 text-[10px]',
+                                              isIdle
+                                                ? 'text-destructive font-semibold'
+                                                : 'text-muted-foreground'
+                                            )}
+                                          >
+                                            <Clock className="w-2.5 h-2.5" />
+                                            <MotoboyTimer
+                                              startTime={ma.acceptedAt || ma.createdAt}
+                                            />
+                                            {isIdle && (
+                                              <AlertTriangle className="w-2.5 h-2.5 animate-pulse" />
+                                            )}
+                                          </div>
+                                        )}
+                                        <div className="mt-3 flex min-w-0 flex-wrap gap-2">
+                                          {ma.assignedTo === null &&
+                                            (userSectors.includes('motoboys' as Sector) ||
+                                              canManageMotoboy) && (
+                                              <Button
+                                                size="sm"
+                                                variant="default"
+                                                className="h-5 text-[9px] px-1.5"
+                                                onClick={async () => {
+                                                  await dept.updateMotoboyAssignment(ma.id, {
+                                                    assignedTo: currentUser.id,
+                                                  });
+                                                  toast.success('Corrida atribuída a você');
+                                                }}
+                                              >
+                                                <UserPlus className="w-2.5 h-2.5 mr-0.5" />
+                                                Pegar Corrida
+                                              </Button>
+                                            )}
+                                          {ma.status === 'pending' &&
+                                            ma.assignedTo &&
+                                            (currentUser.id === ma.assignedTo || isAdmin) && (
+                                              <Button
+                                                size="sm"
+                                                variant="outline"
+                                                className="h-5 text-[9px] px-1.5"
+                                                onClick={() =>
+                                                  dept.updateMotoboyStatus(ma.id, 'accepted')
+                                                }
+                                              >
+                                                <Play className="w-2.5 h-2.5 mr-0.5" />
+                                                Iniciar
+                                              </Button>
+                                            )}
+                                          {ma.status === 'accepted' &&
+                                            (currentUser.id === ma.assignedTo || isAdmin) && (
+                                              <label
+                                                className={cn(
+                                                  'inline-flex min-h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-lg border bg-primary px-3 py-2 text-sm font-medium text-primary-foreground sm:w-auto',
+                                                  rideUploading === ma.id &&
+                                                    'pointer-events-none opacity-60'
+                                                )}
+                                              >
+                                                <CheckCircle2 className="h-4 w-4" />
+                                                {rideUploading === ma.id
+                                                  ? 'Enviando comprovante...'
+                                                  : 'Fotografar notinha assinada'}
+                                                <input
+                                                  type="file"
+                                                  accept="image/*"
+                                                  capture="environment"
+                                                  className="sr-only"
+                                                  disabled={rideUploading !== null}
+                                                  aria-label="Foto da notinha assinada para finalizar a corrida"
+                                                  onChange={async (event) => {
+                                                    const file = event.currentTarget.files?.[0];
+                                                    event.currentTarget.value = '';
+                                                    if (!file) return;
+                                                    if (!file.type.startsWith('image/')) {
+                                                      toast.error(
+                                                        'Selecione uma foto da notinha assinada.'
+                                                      );
+                                                      return;
+                                                    }
+                                                    setRideUploading(ma.id);
+                                                    try {
+                                                      const { publicUrl } = await uploadImage(
+                                                        file,
+                                                        {
+                                                          pathPrefix: 'receipts',
+                                                          sourceTable: 'motoboy_assignments',
+                                                          sourceId: ma.id,
+                                                          sourceField: 'notes',
+                                                          uploadedBy: currentUser.id,
+                                                        }
+                                                      );
+                                                      if (!publicUrl)
+                                                        throw new Error(
+                                                          'Comprovante sem referência'
+                                                        );
+                                                      await dept.updateMotoboyStatus(
+                                                        ma.id,
+                                                        'completed',
+                                                        ma.notes
+                                                          ? `${ma.notes}\nCupom: ${publicUrl}`
+                                                          : `Cupom: ${publicUrl}`,
+                                                        publicUrl
+                                                      );
+                                                      toast.success(
+                                                        'Foto registrada. Corrida contabilizada como entregue!'
+                                                      );
+                                                    } catch (error) {
+                                                      console.error(
+                                                        '[motoboy] falha ao concluir corrida',
+                                                        error
+                                                      );
+                                                      toast.error(
+                                                        'Não foi possível concluir. A corrida permanece em aberto; tente novamente.'
+                                                      );
+                                                    } finally {
+                                                      setRideUploading(null);
+                                                    }
+                                                  }}
+                                                />
+                                              </label>
+                                            )}
+                                          {canManageMotoboy && ma.proofUrl && (
+                                            <Button
+                                              type="button"
+                                              size="sm"
+                                              variant="outline"
+                                              className="min-h-9 text-xs"
+                                              onClick={() => setEnlargedImage(ma.proofUrl)}
+                                            >
+                                              <Receipt className="mr-1 h-3.5 w-3.5" /> Visualizar
+                                              notinha
+                                            </Button>
+                                          )}
+                                          {canManageMotoboy && (
+                                            <Button
+                                              size="sm"
+                                              variant="outline"
+                                              className="h-5 text-[9px] px-1.5"
+                                              onClick={() => {
+                                                setForm((prev: any) => {
+                                                  const baseDt = ma.scheduledFor || ma.createdAt;
+                                                  const d = baseDt ? new Date(baseDt) : new Date();
+                                                  const pad = (n: number) =>
+                                                    String(n).padStart(2, '0');
+                                                  const editDate = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+                                                  const editTime = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+                                                  return {
+                                                    ...prev,
+                                                    editId: ma.id,
+                                                    editDesc: ma.description,
+                                                    editClient: ma.clientName || '',
+                                                    editLocation: ma.location || '',
+                                                    editValue:
+                                                      ma.rideValue > 0 ? String(ma.rideValue) : '',
+                                                    editNotes: ma.notes || '',
+                                                    editAssignee: ma.assignedTo,
+                                                    editDate,
+                                                    editTime,
+                                                  };
+                                                });
+                                                setDialog('editMotoboy');
+                                              }}
+                                            >
+                                              <Pencil className="w-2.5 h-2.5 mr-0.5" />
+                                              Editar
+                                            </Button>
+                                          )}
+                                          {canManageMotoboy &&
+                                            ma.assignedTo &&
+                                            ma.status !== 'completed' && (
+                                              <Button
+                                                size="sm"
+                                                variant="outline"
+                                                className="h-5 text-[9px] px-1.5 text-warning hover:text-warning"
+                                                onClick={() =>
+                                                  setConfirmAction({
+                                                    title: 'Desatribuir corrida',
+                                                    description:
+                                                      'A corrida será retirada do motoboy e voltará para a fila de redistribuição.',
+                                                    confirmLabel: 'Desatribuir',
+                                                    action: async () => {
+                                                      await dept.unassignMotoboy(ma.id);
+                                                      toast.success(
+                                                        'Corrida desatribuída — disponível para redistribuição'
+                                                      );
+                                                    },
+                                                  })
+                                                }
+                                              >
+                                                <UserX className="w-2.5 h-2.5 mr-0.5" />
+                                                Desatribuir
+                                              </Button>
+                                            )}
+                                          {canManageMotoboy && (
+                                            <Button
+                                              size="sm"
+                                              variant="outline"
+                                              className="h-5 text-[9px] px-1.5 text-destructive hover:text-destructive"
+                                              onClick={() =>
+                                                setConfirmAction({
+                                                  title: 'Excluir corrida',
+                                                  description:
+                                                    'Esta corrida será removida definitivamente do JapanFlow.',
+                                                  confirmLabel: 'Excluir',
+                                                  destructive: true,
+                                                  action: async () => {
+                                                    await dept.deleteMotoboyAssignment(ma.id);
+                                                    toast.success('Corrida excluída');
+                                                  },
+                                                })
+                                              }
+                                            >
+                                              <Trash2 className="w-2.5 h-2.5" />
+                                            </Button>
+                                          )}
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
                                 </div>
                               </div>
                             );
                           })}
                         </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })()}
+                  </div>
                 </div>
-              );
-            })()}
+              </DialogContent>
+            </Dialog>
+          </TabsContent>
+        )}
+
+        {/* Clientes */}
+        {canSeeClients && (
+          <TabsContent value="clients" className="min-w-0">
+            <ClientsWorkspace dept={dept} canManage={true} />
           </TabsContent>
         )}
 
@@ -2052,7 +1812,7 @@ const DepartmentalPage = () => {
       <Dialog open={dialog === 'motoboy'} onOpenChange={() => resetDialog()}>
         <DialogContent className="rounded-2xl">
           <DialogHeader>
-            <DialogTitle>Nova Tarefa para Motoboy</DialogTitle>
+            <DialogTitle>Nova corrida</DialogTitle>
           </DialogHeader>
           <Textarea
             value={form.desc || ''}
@@ -2060,15 +1820,27 @@ const DepartmentalPage = () => {
             placeholder="Descrição da tarefa"
             rows={3}
           />
+          <ClientLookup
+            clients={dept.clients}
+            onSelect={(client) =>
+              setForm((prev: any) => ({
+                ...prev,
+                clientName: client.companyName,
+                location: client.address,
+                clientId: client.id,
+              }))
+            }
+            label="Preencher com cliente cadastrado"
+          />
           <Input
             value={form.clientName || ''}
-            onChange={(e) => setForm({ ...form, clientName: e.target.value })}
+            onChange={(e) => setForm({ ...form, clientName: e.target.value, clientId: null })}
             placeholder="Nome do Cliente"
           />
           <Input
             value={form.location || ''}
             onChange={(e) => setForm({ ...form, location: e.target.value })}
-            placeholder="Localização"
+            placeholder="Endereço de entrega"
           />
           <Input
             type="text"
@@ -2082,10 +1854,10 @@ const DepartmentalPage = () => {
           {!form.scheduleEnabled && (
             <Select
               value={form.assignee || ''}
-              onValueChange={(v) => setForm({ ...form, assignee: v })}
+              onValueChange={(v) => setForm({ ...form, assignee: v === 'unassigned' ? '' : v })}
             >
               <SelectTrigger>
-                <SelectValue placeholder="Selecionar motoboy" />
+                <SelectValue placeholder="Designar agora (opcional)" />
               </SelectTrigger>
               <SelectContent>
                 {motoboys.map((m) => (
@@ -2127,8 +1899,9 @@ const DepartmentalPage = () => {
                 value={form.scheduleTime || ''}
                 onChange={(e) => setForm({ ...form, scheduleTime: e.target.value })}
               />
-              <p className="col-span-2 text-[11px] text-destructive">
-                Corridas agendadas vão para a fila de aprovação na aba Motoboys.
+              <p className="col-span-2 text-[11px] text-muted-foreground">
+                A corrida agendada fica autorizada. Se não houver motoboy, permanece pendente de
+                designação.
               </p>
             </div>
           )}
@@ -2137,7 +1910,7 @@ const DepartmentalPage = () => {
               Cancelar
             </Button>
             <Button onClick={handleAssignMotoboy} disabled={motoboyLoading}>
-              {motoboyLoading ? 'Criando...' : 'Atribuir'}
+              {motoboyLoading ? 'Criando...' : 'Criar corrida'}
             </Button>
           </div>
         </DialogContent>

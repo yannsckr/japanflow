@@ -163,6 +163,7 @@ const EmployeeBoardPage = () => {
             {isAdmin && <CreateTaskDialog preselectedAssignee={viewUserId} />}
 
             {!isAdmin && showCreateTask && <CreateTaskDialog />}
+            <CreateTaskDialog mode="order" />
           </div>
         </div>
       </section>

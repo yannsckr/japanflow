@@ -12,6 +12,7 @@ import {
   orderBy,
   query,
   Timestamp,
+  serverTimestamp,
   updateDoc,
   where,
 } from 'firebase/firestore';
@@ -85,6 +86,16 @@ export interface SupplyRequest {
   createdAt: string;
 }
 
+export interface DepartmentalClient {
+  id: string;
+  clientType: 'pf' | 'pj';
+  companyName: string;
+  contactPerson: string;
+  phone: string;
+  address: string;
+  createdAt: string;
+}
+
 export interface MotoboyAssignment {
   id: string;
   description: string;
@@ -118,6 +129,8 @@ export const useDepartmental = () => {
   const [lowStockItems, setLowStockItems] = useState<LowStockItem[]>([]);
   const [supplyRequests, setSupplyRequests] = useState<SupplyRequest[]>([]);
   const [motoboyAssignments, setMotoboyAssignments] = useState<MotoboyAssignment[]>([]);
+  const [clients, setClients] = useState<DepartmentalClient[]>([]);
+  const [clientsError, setClientsError] = useState<string | null>(null);
 
   useEffect(() => {
     const unsubscribers: Array<() => void> = [];
@@ -269,6 +282,35 @@ export const useDepartmental = () => {
           );
         },
         (error) => console.error('Erro em supply_requests:', error)
+      )
+    );
+
+    unsubscribers.push(
+      onSnapshot(
+        makeQuery('departmental_clients'),
+        (snapshot) => {
+          setClientsError(null);
+          setClients(
+            snapshot.docs.map((row) => {
+              const r = row.data();
+              return {
+                id: row.id,
+                companyName: r.company_name || '',
+                clientType: r.client_type === 'pf' ? 'pf' : 'pj',
+                contactPerson: r.contact_person || '',
+                phone: r.phone || '',
+                address: r.address || '',
+                createdAt: toIso(r.created_at) || new Date().toISOString(),
+              };
+            })
+          );
+        },
+        (error) => {
+          console.error('Erro em departmental_clients:', error);
+          setClientsError(
+            'Não foi possível carregar os clientes. Verifique as regras de acesso e a conexão.'
+          );
+        }
       )
     );
 
@@ -536,11 +578,62 @@ export const useDepartmental = () => {
     });
   }, []);
 
+  // Clients
+  const addClient = useCallback(
+    async (data: {
+      companyName: string;
+      contactPerson?: string;
+      phone?: string;
+      address?: string;
+      clientType: 'pf' | 'pj';
+    }) => {
+      await addDoc(collection(db, 'departmental_clients'), {
+        company_name: (data.companyName || '').trim(),
+        client_type: data.clientType,
+        company_name_normalized: (data.companyName || '').trim().toUpperCase(),
+        contact_person: (data.contactPerson || '').trim(),
+        phone: (data.phone || '').trim(),
+        address: (data.address || '').trim(),
+        created_at: serverTimestamp(),
+        updated_at: serverTimestamp(),
+      });
+    },
+    []
+  );
+
+  const updateClient = useCallback(
+    async (
+      id: string,
+      data: {
+        companyName: string;
+        contactPerson?: string;
+        phone?: string;
+        address?: string;
+        clientType: 'pf' | 'pj';
+      }
+    ) => {
+      await updateDoc(doc(db, 'departmental_clients', id), {
+        company_name: (data.companyName || '').trim(),
+        client_type: data.clientType,
+        company_name_normalized: (data.companyName || '').trim().toUpperCase(),
+        contact_person: (data.contactPerson || '').trim(),
+        phone: (data.phone || '').trim(),
+        address: (data.address || '').trim(),
+        updated_at: serverTimestamp(),
+      });
+    },
+    []
+  );
+
+  const deleteClient = useCallback(async (id: string) => {
+    await deleteDoc(doc(db, 'departmental_clients', id));
+  }, []);
+
   // Motoboy
   const assignMotoboy = useCallback(
     async (
       desc: string,
-      assignedTo: string,
+      assignedTo: string | null,
       assignedBy: string,
       rideValue?: number,
       clientName?: string,
@@ -549,24 +642,25 @@ export const useDepartmental = () => {
     ) => {
       const nowIso = new Date().toISOString();
 
-      if (scheduledFor) {
+      // Criacao = autorizacao operacional; sem motoboy, permanece na fila pendente.
+      // Nenhuma task e criada ate existir destinatario real.
+      if (!assignedTo) {
         await addDoc(collection(db, 'motoboy_assignments'), {
           description: desc,
-          assigned_to: assignedTo || assignedBy,
+          assigned_to: null,
           assigned_by: assignedBy,
           ride_value: rideValue || 15,
           client_name: clientName || '',
           location: location || '',
-          status: 'pending_approval',
+          status: 'pending',
           notes: null,
           task_id: null,
-          scheduled_for: scheduledFor,
+          scheduled_for: scheduledFor || null,
           created_at: Timestamp.now(),
           updated_at: Timestamp.now(),
           accepted_at: null,
           completed_at: null,
         });
-
         return;
       }
 
@@ -609,7 +703,7 @@ export const useDepartmental = () => {
         status: 'pending',
         notes: null,
         task_id: taskRef.id,
-        scheduled_for: null,
+        scheduled_for: scheduledFor || null,
         created_at: Timestamp.now(),
         updated_at: Timestamp.now(),
         accepted_at: null,
@@ -815,6 +909,28 @@ export const useDepartmental = () => {
     [motoboyAssignments]
   );
 
+  // Redistribuicao de corrida autorizada, incluindo registros historicos pendentes de aprovacao.
+  // O metodo existente cria a task vinculada quando necessario.
+  const designateMotoboyRide = useCallback(
+    async (id: string, motoboyId: string) => {
+      const ride = motoboyAssignments.find((a) => a.id === id);
+      if (!ride || (ride.status !== 'pending' && ride.status !== 'pending_approval')) {
+        throw new Error('Corrida indisponivel para designacao. Atualize a lista.');
+      }
+      if (ride.assignedTo && ride.status !== 'pending_approval') {
+        throw new Error('Esta corrida ja possui motoboy.');
+      }
+      await updateMotoboyAssignment(id, { assignedTo: motoboyId });
+      if (ride.status === 'pending_approval') {
+        await updateDoc(doc(db, 'motoboy_assignments', id), {
+          status: 'pending',
+          updated_at: Timestamp.now(),
+        });
+      }
+    },
+    [motoboyAssignments, updateMotoboyAssignment]
+  );
+
   const unassignMotoboy = useCallback(
     async (id: string) => {
       await updateMotoboyAssignment(id, {
@@ -832,6 +948,8 @@ export const useDepartmental = () => {
     lowStockItems,
     supplyRequests,
     motoboyAssignments,
+    clients,
+    clientsError,
     addTracking,
     updateTrackingStatus,
     deleteTracking,
@@ -848,10 +966,14 @@ export const useDepartmental = () => {
     deleteLowStock,
     requestSupply,
     updateSupplyStatus,
+    addClient,
+    updateClient,
+    deleteClient,
     assignMotoboy,
     updateMotoboyStatus,
     deleteMotoboyAssignment,
     updateMotoboyAssignment,
     unassignMotoboy,
+    designateMotoboyRide,
   };
 };

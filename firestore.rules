@@ -805,6 +805,44 @@ service cloud.firestore {
       allow delete: if canPublishCosmos();
     }
 
+    // Cadastro de clientes: leitura para usuarios ativos e alteracoes apenas por gestores.
+    // Nao permite campos extras arbitrarios nem exclusao por usuarios comuns.
+    function validDepartmentalClient() {
+      return request.resource.data.keys().hasOnly([
+          'company_name', 'company_name_normalized', 'contact_person', 'phone',
+          'address', 'client_type', 'created_at', 'updated_at'
+        ])
+        && request.resource.data.keys().hasAll([
+          'company_name', 'company_name_normalized', 'contact_person', 'phone',
+          'address', 'client_type', 'created_at', 'updated_at'
+        ])
+        && request.resource.data.client_type in ['pf', 'pj']
+        && request.resource.data.company_name is string
+        && request.resource.data.company_name.size() > 0
+        && request.resource.data.company_name.size() <= 180
+        && request.resource.data.company_name_normalized is string
+        && request.resource.data.company_name_normalized.size() <= 180
+        && request.resource.data.contact_person is string
+        && request.resource.data.contact_person.size() <= 180
+        && request.resource.data.phone is string
+        && request.resource.data.phone.size() <= 40
+        && request.resource.data.address is string
+        && request.resource.data.address.size() <= 450
+        && request.resource.data.created_at is timestamp
+        && request.resource.data.updated_at is timestamp;
+    }
+
+    match /departmental_clients/{clientId} {
+      allow get, list: if isActive();
+      allow create: if isActive() && validDepartmentalClient()
+        && request.resource.data.created_at == request.time
+        && request.resource.data.updated_at == request.time;
+      allow update: if isAdmin() && validDepartmentalClient()
+        && request.resource.data.created_at == resource.data.created_at
+        && request.resource.data.updated_at == request.time;
+      allow delete: if isAdmin();
+    }
+
     // Colecoes operacionais nao cobertas pelas regras especificas.
     match /{collection}/{document=**} {
       allow read, write: if isActive()
@@ -830,6 +868,7 @@ service cloud.firestore {
         && collection != 'system_monitor_state'
         && collection != 'messages'
         && collection != 'motoboy_live_locations'
+        && collection != 'departmental_clients'
         && collection != 'motoboy_live_sessions'
         && collection != 'motoboy_telemetry'
         && collection != 'motoboy_daily_reports'

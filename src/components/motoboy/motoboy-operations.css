@@ -1,0 +1,80 @@
+/* Superfícies sem cores fixas: acompanha as variáveis do tema global. */
+.jf-motoboy-board {
+  background: hsl(var(--card));
+  color: hsl(var(--foreground));
+  border: 1px solid hsl(var(--border));
+}
+.jf-motoboy-board .jf-mb-card {
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+  border-radius: 16px;
+}
+.jf-motoboy-board .jf-mb-panel {
+  background: hsl(var(--background));
+  border: 1px solid hsl(var(--border));
+  border-radius: 12px;
+}
+.jf-motoboy-board .jf-mb-icon,
+.jf-motoboy-board .jf-mb-metric-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  background: color-mix(in srgb, hsl(var(--primary)) 12%, transparent);
+  color: hsl(var(--primary));
+}
+.jf-motoboy-board .jf-mb-icon {
+  padding: 12px;
+}
+.jf-motoboy-board .jf-mb-metric-icon {
+  min-width: 38px;
+  height: 38px;
+}
+.jf-motoboy-board .jf-mb-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: hsl(var(--background));
+  border: 1px solid hsl(var(--border));
+  border-radius: 10px;
+  padding: 0 10px;
+}
+.jf-motoboy-board .jf-mb-search {
+  background: hsl(var(--background));
+  border-color: hsl(var(--border));
+  color: hsl(var(--foreground));
+}
+.jf-motoboy-board .jf-mb-ride {
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+  border-left: 3px solid hsl(var(--primary));
+  border-radius: 9px;
+  padding: 10px;
+}
+.jf-motoboy-board .jf-mb-planner > section {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+}
+.jf-motoboy-board .jf-mb-planner > section > header {
+  display: flex;
+  justify-content: flex-end;
+}
+.jf-motoboy-board .jf-mb-planner > section > header > div {
+  display: none;
+}
+.jf-motoboy-board .jf-mb-planner button:not([disabled]) {
+  transition: filter 0.2s ease;
+}
+.jf-motoboy-board .jf-mb-planner button:not([disabled]):hover {
+  filter: brightness(1.08);
+}
+.jf-motoboy-board .jf-mb-planner section {
+  color: hsl(var(--foreground));
+}
+@media (max-width: 720px) {
+  .jf-motoboy-board {
+    padding: 10px;
+  }
+}

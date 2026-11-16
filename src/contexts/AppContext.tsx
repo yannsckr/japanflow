@@ -422,11 +422,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           .filter((value): value is string => Boolean(value))
           .map((value) => value.trim())
       );
-      return tasks.filter((task) =>
-        [...(task.assigneeIds || []), task.assigneeId].some((id) =>
+      const isExpedicaoUser =
+        user?.active !== false && user?.sectors?.includes('expedicao' as Sector) === true;
+      return tasks.filter((task) => {
+        const assignedToUser = [...(task.assigneeIds || []), task.assigneeId].some((id) =>
           aliases.has(String(id || '').trim())
-        )
-      );
+        );
+        // Tarefas destinadas ao setor aparecem diretamente no Kanban de todos
+        // os colaboradores ativos da Expedicao, sem fila ou resgate.
+        const availableToExpedicao =
+          isExpedicaoUser &&
+          task.sector === 'expedicao' &&
+          !task.assigneeId &&
+          !task.assigneeIds?.length;
+        return assignedToUser || availableToExpedicao;
+      });
     },
     [tasks, users]
   );

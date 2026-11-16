@@ -98,6 +98,7 @@ const AdminPage = () => {
             <DailyCompletedCounter userId={currentUser.id} compact />
             <TaskHistoryDialog userId={currentUser.id} />
             <CreateTaskDialog />
+            <CreateTaskDialog mode="order" />
           </div>
         </div>
       </section>

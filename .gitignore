@@ -106,6 +106,7 @@ android/app/build/
 .env
 .env.*
 .ps1
+.py
 !.env.example
 android/local.properties
 desktop.ini

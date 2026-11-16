@@ -9,6 +9,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -21,27 +22,63 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Plus, ImagePlus, X, Package, ScanText, Loader2 } from 'lucide-react';
+import {
+  Plus,
+  ImagePlus,
+  X,
+  Package,
+  ScanText,
+  Loader2,
+  Search,
+  UserPlus,
+  Users,
+} from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Switch } from '@/components/ui/switch';
 
 import { db } from '@/lib/firebase';
-import { addDoc, collection, onSnapshot, orderBy, query, Timestamp } from 'firebase/firestore';
+import {
+  addDoc,
+  collection,
+  onSnapshot,
+  orderBy,
+  query,
+  Timestamp,
+  serverTimestamp,
+} from 'firebase/firestore';
 import { uploadImage } from '@/lib/uploadImage';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { transcribeImageApi } from '@/lib/api';
+import ClientEditorDialog, { type ClientForm } from '@/components/departmental/ClientEditorDialog';
+import AddressAutocomplete from '@/components/departmental/AddressAutocomplete';
+import type { DepartmentalClient } from '@/hooks/useDepartmental';
+import { Checkbox } from '@/components/ui/checkbox';
 
 interface CreateTaskDialogProps {
   preselectedAssignee?: string;
+  mode?: 'task' | 'order';
 }
 
-const CreateTaskDialog = ({ preselectedAssignee }: CreateTaskDialogProps) => {
+const CreateTaskDialog = ({ preselectedAssignee, mode = 'task' }: CreateTaskDialogProps) => {
   const { currentUser, users, sectorAssignEnabled, nfToCarolEnabled, nfBoletoToCarolEnabled } =
     useApp();
   const { permissions, loading: permissionsLoading } = useTaskPermissions();
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState('');
+  const [clientName, setClientName] = useState('');
+  const [clientId, setClientId] = useState<string | null>(null);
+  const [clientAddress, setClientAddress] = useState('');
+  const [clientAddressPlaceId, setClientAddressPlaceId] = useState<string | null>(null);
+  const [deliveryAddress, setDeliveryAddress] = useState('');
+  const [deliveryAddressPlaceId, setDeliveryAddressPlaceId] = useState<string | null>(null);
+  const [clientPickerOpen, setClientPickerOpen] = useState(false);
+  const [clientCreatorOpen, setClientCreatorOpen] = useState(false);
+  const [clientQuery, setClientQuery] = useState('');
+  const [clients, setClients] = useState<DepartmentalClient[]>([]);
+  const [clientReadError, setClientReadError] = useState(false);
+  const titleForTask = mode === 'order' ? `Separação de Pedido - ${clientName.trim()}` : title;
+
   const [description, setDescription] = useState('');
   const [priority, setPriority] = useState<Priority>('medium');
   const [assigneeId, setAssigneeId] = useState(preselectedAssignee || '');
@@ -68,12 +105,15 @@ const CreateTaskDialog = ({ preselectedAssignee }: CreateTaskDialogProps) => {
   const [maquininha, setMaquininha] = useState<'sim' | 'nao' | ''>('');
   const [emissaoNF, setEmissaoNF] = useState<'sim' | 'nao' | ''>('');
   const [formaEntrega, setFormaEntrega] = useState<
-    'motoboy' | 'correios' | 'transportadora' | 'balcao' | ''
+    'motoboy' | 'correios' | 'transportadora' | 'balcao' | 'uber' | ''
   >('');
   const [modalidadeCorreios, setModalidadeCorreios] = useState<'sedex' | 'pac' | ''>('');
   const [transportadora, setTransportadora] = useState<string>(''); // carrier name, '' or 'outros'
   const [transportadoraOutros, setTransportadoraOutros] = useState('');
   const [enderecoDiferente, setEnderecoDiferente] = useState(false);
+  const effectiveDeliveryAddress = enderecoDiferente
+    ? deliveryAddress.trim()
+    : clientAddress.trim();
   const [carriers, setCarriers] = useState<{ id: string; name: string; blocked: boolean }[]>([]);
 
   useEffect(() => {
@@ -101,10 +141,70 @@ const CreateTaskDialog = ({ preselectedAssignee }: CreateTaskDialogProps) => {
     return () => unsubscribe();
   }, []);
 
+  useEffect(() => {
+    if (!open || mode !== 'order') return;
+    const clientQueryRef = query(
+      collection(db, 'departmental_clients'),
+      orderBy('created_at', 'desc')
+    );
+    return onSnapshot(
+      clientQueryRef,
+      (snapshot) => {
+        setClientReadError(false);
+        setClients(
+          snapshot.docs.map((item) => {
+            const data = item.data();
+            return {
+              id: item.id,
+              clientType: data.client_type === 'pf' ? ('pf' as const) : ('pj' as const),
+              companyName: String(data.company_name || ''),
+              contactPerson: String(data.contact_person || ''),
+              phone: String(data.phone || ''),
+              address: String(data.address || ''),
+              createdAt: '',
+            };
+          })
+        );
+      },
+      (error) => {
+        console.error('[Novo Pedido] Erro ao consultar clientes', error);
+        setClientReadError(true);
+      }
+    );
+  }, [open, mode]);
+
+  const chooseClient = (client: DepartmentalClient) => {
+    setClientId(client.id);
+    setClientName(client.companyName);
+    setClientAddress(client.address);
+    setClientAddressPlaceId(null);
+    setClientPickerOpen(false);
+    setClientQuery('');
+  };
+
+  const registerClient = async (form: ClientForm) => {
+    const ref = await addDoc(collection(db, 'departmental_clients'), {
+      company_name: form.companyName.trim(),
+      company_name_normalized: form.companyName.trim().toUpperCase(),
+      client_type: form.clientType,
+      contact_person: form.contactPerson.trim(),
+      phone: form.phone.trim(),
+      address: form.address.trim(),
+      created_at: serverTimestamp(),
+      updated_at: serverTimestamp(),
+    });
+    setClientId(ref.id);
+    setClientName(form.companyName.trim());
+    setClientAddress(form.address.trim());
+    setClientAddressPlaceId(null);
+    toast.success('Cliente cadastrado e selecionado.');
+  };
+
   const activeCarriers = useMemo(() => carriers.filter((c) => !c.blocked), [carriers]);
   const [ocrImage, setOcrImage] = useState<string | null>(null);
   const [ocrLoading, setOcrLoading] = useState(false);
 
+  const isOrderDialog = mode === 'order';
   const isAdmin = currentUser?.role === 'admin';
   const canCreateForAll = canCreateTasksForAll(currentUser);
 
@@ -140,24 +240,34 @@ const CreateTaskDialog = ({ preselectedAssignee }: CreateTaskDialogProps) => {
     (currentUser?.active === true && carolRecipients.length > 0);
   const hasSectorPerms = sectorAssignEnabled && (canCreateForAll || allowedSectors.length > 0);
   const hasAnyPerms = hasEmployeePerms || hasSectorPerms;
+  const mayCreateOrder = hasSectorPerms && assignableSectors.includes('expedicao' as Sector);
 
-  const effectiveAssignMode = preselectedAssignee
-    ? 'employee'
-    : hasEmployeePerms && hasSectorPerms
-      ? assignMode
-      : hasSectorPerms
-        ? 'sector'
-        : 'employee';
+  const effectiveAssignMode = isOrderDialog
+    ? 'sector'
+    : preselectedAssignee
+      ? 'employee'
+      : hasEmployeePerms && hasSectorPerms
+        ? assignMode
+        : hasSectorPerms
+          ? 'sector'
+          : 'employee';
 
   // Determine if target is expedição
   const isTargetingExpedicao = useMemo(() => {
+    if (isOrderDialog) return mayCreateOrder;
     if (effectiveAssignMode === 'sector' && sector === 'expedicao') return true;
     if (effectiveAssignMode === 'employee' && assigneeId) {
       const assignee = users.find((u) => u.id === assigneeId);
       if (assignee?.sectors?.includes('expedicao' as Sector)) return true;
     }
     return false;
-  }, [effectiveAssignMode, sector, assigneeId, users]);
+  }, [isOrderDialog, mayCreateOrder, effectiveAssignMode, sector, assigneeId, users]);
+
+  // A modalidade Pedido reutiliza o fluxo de separacao existente.
+  // Não cria um segundo fluxo de tarefas/Functions.
+  useEffect(() => {
+    if (isOrderDialog && open && isTargetingExpedicao) setIsSeparacao(true);
+  }, [isOrderDialog, isTargetingExpedicao, open]);
 
   // Reset separação fields when not targeting expedição
   const resetSeparacaoFields = () => {
@@ -324,6 +434,11 @@ const CreateTaskDialog = ({ preselectedAssignee }: CreateTaskDialogProps) => {
     parts.push(description);
     parts.push('\n📦 SEPARAÇÃO DE PEDIDO');
     if (enderecoDiferente) parts.push('🚨 ENDEREÇO DE ENVIO DIFERENTE DO CADASTRO');
+    if (isOrderDialog) {
+      parts.push(`👤 Cliente: ${clientName.trim()}`);
+      parts.push(`📍 Endereço de cadastro: ${clientAddress.trim()}`);
+      parts.push(`🚚 Destino da entrega: ${effectiveDeliveryAddress}`);
+    }
     if (isTroca) parts.push(`🔄 ${isTroca === 'sim' ? 'TROCA' : 'NÃO É TROCA'}`);
     if (pagamento) parts.push(`💰 ${pagamento === 'pago' ? 'Pago' : 'Não Pago'}`);
     if (pagamento === 'pago' && usarCreditos) parts.push('🪙 USAR CRÉDITOS');
@@ -338,6 +453,7 @@ const CreateTaskDialog = ({ preselectedAssignee }: CreateTaskDialogProps) => {
         correios: '📮 Correios',
         transportadora: '🚛 Transportadora',
         balcao: '🏪 Balcão',
+        uber: '🚗 Uber',
       };
       parts.push(`🚚 Entrega: ${labels[formaEntrega] || formaEntrega}`);
     }
@@ -371,16 +487,29 @@ const CreateTaskDialog = ({ preselectedAssignee }: CreateTaskDialogProps) => {
   };
 
   const handleSubmit = async () => {
-    if (!title || !currentUser) return;
-    if (effectiveAssignMode === 'employee' && !assigneeId) return;
+    if (isOrderDialog && !clientName.trim()) {
+      toast.error('Informe o nome do cliente.');
+      return;
+    }
+    if (isOrderDialog && enderecoDiferente && !deliveryAddress.trim()) {
+      toast.error('Informe o endereço de envio diferente.');
+      return;
+    }
+    if (!titleForTask || !currentUser) return;
+    if (isOrderDialog && (!isTargetingExpedicao || !isSeparacao)) {
+      toast.error('Pedido precisa ser destinado a Expedicao e marcado como separacao.');
+      return;
+    }
+    if (!isOrderDialog && effectiveAssignMode === 'employee' && !assigneeId) return;
     if (
+      !isOrderDialog &&
       effectiveAssignMode === 'employee' &&
       !assignableUsers.some((user) => user.id === assigneeId)
     ) {
       toast.error('Destinatário indisponível ou sem permissão de envio.');
       return;
     }
-    if (effectiveAssignMode === 'sector' && !sector) return;
+    if (effectiveAssignMode === 'sector' && !(isOrderDialog ? 'expedicao' : sector)) return;
 
     // Require payment proof when separação de pedido marked as PAGO,
     // exceto quando o cliente for usar créditos (comprovante é opcional)
@@ -405,27 +534,37 @@ const CreateTaskDialog = ({ preselectedAssignee }: CreateTaskDialogProps) => {
     const now = new Date().toISOString();
     const statusHistory = [{ status: 'todo', enteredAt: now }];
 
-    let insertedTaskId: string;
-
     try {
-      const insertedTask = await addDoc(collection(db, 'tasks'), {
+      await addDoc(collection(db, 'tasks'), {
         board_visible: true,
-        title: isSeparacao && enderecoDiferente ? `🚨 ENDEREÇO DIFERENTE - ${title}` : title,
+        title: titleForTask,
         description: finalDescription,
+        ...(isOrderDialog
+          ? {
+              client_id: clientId,
+              client_name: clientName.trim(),
+              client_address: clientAddress.trim(),
+              delivery_address: effectiveDeliveryAddress,
+              delivery_place_id: enderecoDiferente ? deliveryAddressPlaceId : clientAddressPlaceId,
+              delivery_method: formaEntrega || null,
+            }
+          : {}),
         priority,
-        assignee_id: effectiveAssignMode === 'employee' ? assigneeId : '',
+        assignee_id: isOrderDialog ? '' : effectiveAssignMode === 'employee' ? assigneeId : '',
         deadline: fullDeadline,
         status: 'todo',
         created_by: currentUser.id,
-        sector: effectiveAssignMode === 'sector' ? (sector as Sector) : null,
+        sector: isOrderDialog
+          ? ('expedicao' as Sector)
+          : effectiveAssignMode === 'sector'
+            ? (sector as Sector)
+            : null,
         image_url: firstImageUrl || null,
         image_urls: allImageUrls,
         status_history: statusHistory,
         created_at: Timestamp.now(),
         updated_at: Timestamp.now(),
       });
-
-      insertedTaskId = insertedTask.id;
     } catch (error) {
       console.error('Error creating task:', error);
       toast.error('Erro ao criar tarefa');
@@ -434,11 +573,11 @@ const CreateTaskDialog = ({ preselectedAssignee }: CreateTaskDialogProps) => {
     }
 
     // Send notification for assigned user
-    if (effectiveAssignMode === 'employee' && assigneeId) {
+    if (!isOrderDialog && effectiveAssignMode === 'employee' && assigneeId) {
       try {
         await addDoc(collection(db, 'notifications'), {
           user_id: assigneeId,
-          message: `Nova tarefa atribuída: ${title}`,
+          message: `Nova tarefa atribuída: ${titleForTask}`,
           type: 'task_created',
           read: false,
           created_at: Timestamp.now(),
@@ -451,7 +590,7 @@ const CreateTaskDialog = ({ preselectedAssignee }: CreateTaskDialogProps) => {
       }
     }
 
-    // If separação with motoboy delivery, create a ride pending Patricia's approval
+    // Corrida nasce aprovada operacionalmente, mas sem motoboy designado.
     if (isSeparacao && formaEntrega === 'motoboy' && currentUser) {
       const separacaoDetails = [
         pagamento === 'pago' ? '💰 Pago' : pagamento === 'nao_pago' ? '💰 Não Pago' : '',
@@ -469,20 +608,20 @@ const CreateTaskDialog = ({ preselectedAssignee }: CreateTaskDialogProps) => {
       const fullNotes = [separacaoDetails, infoTag].filter(Boolean).join(' ');
       await addDoc(collection(db, 'motoboy_assignments'), {
         description: enderecoDiferente
-          ? `🚨 ENDEREÇO DIFERENTE - Entrega: ${title}`
-          : `Entrega: ${title}`,
-        assigned_to: 'pending',
+          ? `🚨 ENDEREÇO DIFERENTE - Entrega: ${titleForTask}`
+          : `Entrega: ${titleForTask}`,
+        assigned_to: null,
         assigned_by: currentUser.id,
         ride_value: 15,
-        client_name: '',
-        location: '',
+        client_name: clientName.trim(),
+        location: effectiveDeliveryAddress,
         notes: fullNotes,
-        status: 'pending_approval',
-        task_id: null,
+        status: 'pending',
+        task_id: null, // somente criar task do motoboy ao designar; nao vincular a tarefa de separacao
         created_at: Timestamp.now(),
         updated_at: Timestamp.now(),
       });
-      toast.info('Corrida criada aguardando aprovação de Patrícia');
+      toast.info('Corrida criada em Pendentes, pronta para designação.');
     }
 
     // If separação with Transportadora, create a personal task for Patricia (emp-1)
@@ -494,7 +633,7 @@ const CreateTaskDialog = ({ preselectedAssignee }: CreateTaskDialogProps) => {
       const patriciaTaskDesc = [
         enderecoDiferente ? ENDERECO_BANNER : '',
         `Transportadora: ${transpLabel}`,
-        `Pedido: ${title}`,
+        `Pedido: ${titleForTask}`,
         pagamento === 'pago' ? '💰 Pago' : pagamento === 'nao_pago' ? '💰 Não Pago' : '',
         boleto === 'com' ? '📄 COM Boleto' : boleto === 'sem' ? '📄 SEM Boleto' : '',
         emissaoNF === 'sim' ? '🧾 COM NF' : emissaoNF === 'nao' ? '🧾 SEM NF' : '',
@@ -513,7 +652,7 @@ const CreateTaskDialog = ({ preselectedAssignee }: CreateTaskDialogProps) => {
       const patStatusHistory = [{ status: 'todo', enteredAt: new Date().toISOString() }];
       await addDoc(collection(db, 'tasks'), {
         board_visible: true,
-        title: `${enderecoDiferente ? '🚨 ENDEREÇO DIFERENTE - ' : ''}🚛 Transportadora ${transpLabel}: ${title}`,
+        title: `${enderecoDiferente ? '🚨 ENDEREÇO DIFERENTE - ' : ''}🚛 Transportadora ${transpLabel}: ${titleForTask}`,
         description: patriciaTaskDesc,
         status: 'todo',
         priority: 'medium',
@@ -529,7 +668,7 @@ const CreateTaskDialog = ({ preselectedAssignee }: CreateTaskDialogProps) => {
       });
       await addDoc(collection(db, 'notifications'), {
         user_id: 'emp-1',
-        message: `Transportadora ${transpLabel}: ${title}`,
+        message: `Transportadora ${transpLabel}: ${titleForTask}`,
         type: 'task_created',
         read: false,
         created_at: Timestamp.now(),
@@ -562,11 +701,11 @@ const CreateTaskDialog = ({ preselectedAssignee }: CreateTaskDialogProps) => {
           .filter(Boolean)
           .join('\n');
         await addDoc(collection(db, 'pickups'), {
-          order_title: title,
+          order_title: titleForTask,
           delivery_type: isBalcao ? 'balcao' : 'transportadora',
           carrier_name: isBalcao ? null : transpLabelPickup,
           details: pickupDetails || null,
-          task_id: insertedTaskId,
+          task_id: null, // somente criar task do motoboy ao designar; nao vincular a tarefa de separacao
           created_by: currentUser.id,
           status: 'pending',
           created_at: Timestamp.now(),
@@ -584,7 +723,7 @@ const CreateTaskDialog = ({ preselectedAssignee }: CreateTaskDialogProps) => {
       const williamTaskDesc = [
         enderecoDiferente ? ENDERECO_BANNER : '',
         `Gerar etiqueta de envio via ${modalLabel}`,
-        `Pedido: ${title}`,
+        `Pedido: ${titleForTask}`,
         pagamento === 'pago' ? '💰 Pago' : pagamento === 'nao_pago' ? '💰 Não Pago' : '',
         emissaoNF === 'sim'
           ? '🧾 COM Emissão de NF'
@@ -609,7 +748,7 @@ const CreateTaskDialog = ({ preselectedAssignee }: CreateTaskDialogProps) => {
       const statusHistory = [{ status: 'todo', enteredAt: new Date().toISOString() }];
       await addDoc(collection(db, 'tasks'), {
         board_visible: true,
-        title: `${enderecoDiferente ? '🚨 ENDEREÇO DIFERENTE - ' : ''}📮 Etiqueta ${modalLabel}: ${title}`,
+        title: `${enderecoDiferente ? '🚨 ENDEREÇO DIFERENTE - ' : ''}📮 Etiqueta ${modalLabel}: ${titleForTask}`,
         description: williamTaskDesc,
         status: 'todo',
         priority: 'high',
@@ -643,7 +782,7 @@ const CreateTaskDialog = ({ preselectedAssignee }: CreateTaskDialogProps) => {
         enderecoDiferente ? ENDERECO_BANNER : '',
         trocaBanner,
         financialParts.join(' + '),
-        `Pedido: ${title}`,
+        `Pedido: ${titleForTask}`,
         pagamento === 'pago' ? '💰 Pago' : pagamento === 'nao_pago' ? '💰 Não Pago' : '',
         description ? `Obs: ${description}` : '',
         enderecoDiferente ? '[INFO:ENDERECO_DIFERENTE]' : '',
@@ -689,12 +828,12 @@ const CreateTaskDialog = ({ preselectedAssignee }: CreateTaskDialogProps) => {
 
       const enderecoPrefix = enderecoDiferente ? '🚨 ENDEREÇO DIFERENTE - ' : '';
       const finTitle = nfWithBoleto
-        ? `${enderecoPrefix}${trocaPrefix}🧾 NF + Boleto: ${title}`
+        ? `${enderecoPrefix}${trocaPrefix}🧾 NF + Boleto: ${titleForTask}`
         : nfOnly
-          ? `${enderecoPrefix}${trocaPrefix}🧾 Emissão NF: ${title}`
+          ? `${enderecoPrefix}${trocaPrefix}🧾 Emissão NF: ${titleForTask}`
           : boletoOnly
-            ? `${enderecoPrefix}${trocaPrefix}📄 Boleto: ${title}`
-            : `${enderecoPrefix}🔄 TROCA: ${title}`;
+            ? `${enderecoPrefix}${trocaPrefix}📄 Boleto: ${titleForTask}`
+            : `${enderecoPrefix}🔄 TROCA: ${titleForTask}`;
       await addDoc(collection(db, 'tasks'), {
         board_visible: true,
         title: finTitle,
@@ -741,7 +880,7 @@ const CreateTaskDialog = ({ preselectedAssignee }: CreateTaskDialogProps) => {
       const baixaDesc = [
         enderecoDiferente ? ENDERECO_BANNER : '',
         usarCreditos ? '🪙 USAR CRÉDITOS DO CLIENTE' : '💰 DAR BAIXA NO CAIXA',
-        `Pedido: ${title}`,
+        `Pedido: ${titleForTask}`,
         usarCreditos
           ? proofUrls.length > 0
             ? 'Cliente irá utilizar créditos. Comprovante anexado (opcional).'
@@ -763,7 +902,7 @@ const CreateTaskDialog = ({ preselectedAssignee }: CreateTaskDialogProps) => {
       const baixaHistory = [{ status: 'todo', enteredAt: new Date().toISOString() }];
       await addDoc(collection(db, 'tasks'), {
         board_visible: true,
-        title: `${enderecoDiferente ? '🚨 ENDEREÇO DIFERENTE - ' : ''}${baixaTitlePrefix}: ${title}`,
+        title: `${enderecoDiferente ? '🚨 ENDEREÇO DIFERENTE - ' : ''}${baixaTitlePrefix}: ${titleForTask}`,
         description: baixaDesc,
         status: 'todo',
         priority: 'high',
@@ -786,6 +925,12 @@ const CreateTaskDialog = ({ preselectedAssignee }: CreateTaskDialogProps) => {
 
     // Reset all fields
     setTitle('');
+    setClientName('');
+    setClientId(null);
+    setClientAddress('');
+    setClientAddressPlaceId(null);
+    setDeliveryAddress('');
+    setDeliveryAddressPlaceId(null);
     setDescription('');
     setPriority('medium');
     setAssigneeId(preselectedAssignee || '');
@@ -803,146 +948,329 @@ const CreateTaskDialog = ({ preselectedAssignee }: CreateTaskDialogProps) => {
   };
 
   const isValid =
-    title &&
-    ((effectiveAssignMode === 'employee' && assigneeId) ||
-      (effectiveAssignMode === 'sector' && sector));
+    (isOrderDialog ? clientName.trim() && (!enderecoDiferente || deliveryAddress.trim()) : title) &&
+    (isOrderDialog
+      ? mayCreateOrder
+      : (effectiveAssignMode === 'employee' && assigneeId) ||
+        (effectiveAssignMode === 'sector' && sector));
 
   if (permissionsLoading) return null;
-  if (!canCreateForAll && !hasAnyPerms && !preselectedAssignee) return null;
+  if (!isOrderDialog && !canCreateForAll && !hasAnyPerms && !preselectedAssignee) return null;
+  if (isOrderDialog && !mayCreateOrder) {
+    return (
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        className="gap-1.5"
+        onClick={() =>
+          toast.error('Você precisa de permissão para criar pedidos destinados à Expedição.')
+        }
+      >
+        <Package className="h-4 w-4" />
+        Novo Pedido
+      </Button>
+    );
+  }
 
   return (
     <Dialog
       open={open}
       onOpenChange={(v) => {
         setOpen(v);
-        if (!v) resetSeparacaoFields();
+        if (!v) {
+          resetSeparacaoFields();
+        } else if (isOrderDialog) {
+          // Pedidos são sempre separação destinada à Expedição, respeitando permissões.
+          setAssignMode('sector');
+          setSector('expedicao' as Sector);
+          setAssigneeId('');
+          setIsSeparacao(true);
+        }
       }}
     >
       <DialogTrigger asChild>
-        <Button size="sm" className="gap-1.5">
-          <Plus className="w-4 h-4" />
-          Nova Tarefa
+        <Button size="sm" variant={isOrderDialog ? 'outline' : 'default'} className="gap-1.5">
+          {isOrderDialog ? <Package className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+          {isOrderDialog ? 'Novo Pedido' : 'Nova Tarefa'}
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Criar Nova Tarefa</DialogTitle>
+      <DialogContent className="max-h-[92vh] w-[min(96vw,1180px)] max-w-none overflow-y-auto rounded-2xl p-5 sm:max-w-none sm:p-7">
+        <DialogHeader className="border-b border-border/70 pb-4">
+          <DialogTitle className="flex items-center gap-3 text-xl">
+            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              {isOrderDialog ? <Package className="h-5 w-5" /> : <Plus className="h-5 w-5" />}
+            </span>
+            {isOrderDialog ? 'Criar Novo Pedido' : 'Criar Nova Tarefa'}
+          </DialogTitle>
+          {!isOrderDialog && (
+            <DialogDescription className="pl-0 text-sm sm:pl-[52px]">
+              Organize os detalhes, a prioridade e o responsável pela tarefa.
+            </DialogDescription>
+          )}
         </DialogHeader>
-        <div className="space-y-4 mt-2" onPaste={handlePaste}>
-          <div>
-            <label className="text-sm font-medium mb-1.5 block">Título</label>
-            <Input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="Nome da tarefa"
-            />
-          </div>
-          <div>
-            <label className="text-sm font-medium mb-1.5 block">Descrição</label>
-            <Textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Descreva a tarefa..."
-              rows={3}
-            />
-          </div>
-
-          {/* Image upload - multiple */}
-          <div>
-            <label className="text-sm font-medium mb-1.5 block">Imagens (até 10, opcional)</label>
-            {imagePreviews.length > 0 && (
-              <div className="flex flex-wrap gap-2 mb-2">
-                {imagePreviews.map((preview, idx) => (
-                  <div key={idx} className="relative inline-block">
-                    <img
-                      src={preview}
-                      alt={`Preview ${idx + 1}`}
-                      className="h-20 w-20 object-cover rounded-lg border border-border"
-                    />
-                    <button
-                      onClick={() => removeImage(idx)}
-                      className="absolute -top-1.5 -right-1.5 bg-destructive text-destructive-foreground rounded-full p-0.5"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
+        <div className={isOrderDialog ? 'mt-3 space-y-5' : 'mt-2 space-y-5'} onPaste={handlePaste}>
+          <div
+            className={
+              isOrderDialog
+                ? 'grid min-w-0 gap-5 lg:grid-cols-[minmax(0,1.08fr)_minmax(0,0.92fr)] lg:items-start'
+                : 'grid gap-6 lg:grid-cols-[minmax(0,1.18fr)_minmax(0,0.82fr)]'
+            }
+          >
+            <div className="min-w-0 space-y-4">
+              {isOrderDialog && (
+                <section className="space-y-4 rounded-xl border border-border/70 bg-muted/20 p-4 sm:p-5">
+                  <div className="flex items-center gap-2 text-sm font-semibold">
+                    <Users className="h-4 w-4 text-primary" />
+                    Dados do cliente e entrega
                   </div>
-                ))}
-              </div>
-            )}
-            {imageFiles.length < 10 && (
+
+                  <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-end">
+                    <div className="space-y-1.5 min-w-0">
+                      <label className="text-xs font-medium">Cliente *</label>
+                      <Input
+                        value={clientName}
+                        maxLength={180}
+                        placeholder="Nome do cliente ou empresa"
+                        onChange={(e) => {
+                          setClientName(e.target.value);
+                          setClientId(null);
+                        }}
+                      />
+                    </div>
+
+                    <Button
+                      variant="outline"
+                      type="button"
+                      className="gap-1.5"
+                      onClick={() => setClientPickerOpen(true)}
+                    >
+                      <Search className="h-4 w-4" />
+                      Selecionar cliente
+                    </Button>
+
+                    <Button
+                      type="button"
+                      aria-label="Cadastrar novo cliente"
+                      className="gap-1.5"
+                      onClick={() => setClientCreatorOpen(true)}
+                    >
+                      <UserPlus className="h-4 w-4" />+
+                    </Button>
+                  </div>
+
+                  <AddressAutocomplete
+                    label="Endereço do cliente"
+                    value={clientAddress}
+                    onChange={(address, placeId) => {
+                      setClientAddress(address);
+                      setClientAddressPlaceId(placeId);
+                    }}
+                  />
+
+                  <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm">
+                    <Checkbox
+                      checked={enderecoDiferente}
+                      onCheckedChange={(checked) => setEnderecoDiferente(checked === true)}
+                    />
+                    Endereço de envio diferente
+                  </label>
+
+                  {enderecoDiferente && (
+                    <div className="rounded-lg border border-primary/20 bg-primary/5 p-3">
+                      <AddressAutocomplete
+                        label="Endereço de entrega (será usado nas rotas)"
+                        value={deliveryAddress}
+                        onChange={(address, placeId) => {
+                          setDeliveryAddress(address);
+                          setDeliveryAddressPlaceId(placeId);
+                        }}
+                      />
+                    </div>
+                  )}
+
+                  <p className="text-[11px] text-muted-foreground">
+                    Título no Kanban:{' '}
+                    <span className="font-medium text-foreground">{titleForTask}</span>
+                  </p>
+                </section>
+              )}
+              {!isOrderDialog && (
+                <div>
+                  <label className="text-sm font-medium mb-1.5 block">Título</label>
+                  <Input
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    placeholder="Nome da tarefa"
+                  />
+                </div>
+              )}
               <div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="gap-1.5"
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  <ImagePlus className="w-4 h-4" />
-                  {imageFiles.length > 0
-                    ? `Adicionar Mais (${imageFiles.length}/10)`
-                    : 'Adicionar Imagem'}
-                </Button>
-                <p className="text-xs text-muted-foreground mt-1">Ou cole uma imagem (Ctrl+V)</p>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  className="hidden"
-                  onChange={(e) => {
-                    if (e.target.files) {
-                      Array.from(e.target.files).forEach((f) => handleImageSelect(f));
-                    }
-                  }}
+                <label className="text-sm font-medium mb-1.5 block">Descrição</label>
+                <Textarea
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="Descreva a tarefa..."
+                  className={isOrderDialog ? 'min-h-[220px] resize-y' : 'resize-y'}
+                  rows={3}
                 />
               </div>
-            )}
-          </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-sm font-medium mb-1.5 block">Prioridade</label>
-              <Select value={priority} onValueChange={(v) => setPriority(v as Priority)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="high">🔴 Alta</SelectItem>
-                  <SelectItem value="medium">🟡 Média</SelectItem>
-                  <SelectItem value="low">🟢 Baixa</SelectItem>
-                </SelectContent>
-              </Select>
+              {/* Image upload - multiple */}
+              <div>
+                <label className="text-sm font-medium mb-1.5 block">
+                  Imagens (até 10, opcional)
+                </label>
+                {imagePreviews.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    {imagePreviews.map((preview, idx) => (
+                      <div key={idx} className="relative inline-block">
+                        <img
+                          src={preview}
+                          alt={`Preview ${idx + 1}`}
+                          className="h-20 w-20 object-cover rounded-lg border border-border"
+                        />
+                        <button
+                          onClick={() => removeImage(idx)}
+                          className="absolute -top-1.5 -right-1.5 bg-destructive text-destructive-foreground rounded-full p-0.5"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {imageFiles.length < 10 && (
+                  <div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="gap-1.5"
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      <ImagePlus className="w-4 h-4" />
+                      {imageFiles.length > 0
+                        ? `Adicionar Mais (${imageFiles.length}/10)`
+                        : 'Adicionar Imagem'}
+                    </Button>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Ou cole uma imagem (Ctrl+V)
+                    </p>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      className="hidden"
+                      onChange={(e) => {
+                        if (e.target.files) {
+                          Array.from(e.target.files).forEach((f) => handleImageSelect(f));
+                        }
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
             </div>
-            <div>
-              <label className="text-sm font-medium mb-1.5 block">Prazo (opcional)</label>
-              <Input type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)} />
-            </div>
-          </div>
-          <div>
-            <label className="text-sm font-medium mb-1.5 block">Horário (opcional)</label>
-            <Input type="time" value={taskTime} onChange={(e) => setTaskTime(e.target.value)} />
-          </div>
-          {!preselectedAssignee && (
-            <div>
-              <label className="text-sm font-medium mb-1.5 block">Atribuir a</label>
-              {hasEmployeePerms && hasSectorPerms ? (
-                <Tabs
-                  value={assignMode}
-                  onValueChange={(v) => {
-                    setAssignMode(v as 'employee' | 'sector');
-                    resetSeparacaoFields();
-                  }}
-                >
-                  <TabsList className="w-full mb-2">
-                    <TabsTrigger value="employee" className="flex-1">
-                      Funcionário
-                    </TabsTrigger>
-                    <TabsTrigger value="sector" className="flex-1">
-                      Setor
-                    </TabsTrigger>
-                  </TabsList>
-                  <TabsContent value="employee">
+            <div
+              className={
+                isOrderDialog
+                  ? 'min-w-0 space-y-4 rounded-xl border border-border/70 bg-muted/10 p-4 sm:p-5 lg:self-start'
+                  : 'min-w-0 space-y-4 lg:border-l lg:border-border/70 lg:pl-6'
+              }
+            >
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="text-sm font-medium mb-1.5 block">Prioridade</label>
+                  <Select value={priority} onValueChange={(v) => setPriority(v as Priority)}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="high">🔴 Alta</SelectItem>
+                      <SelectItem value="medium">🟡 Média</SelectItem>
+                      <SelectItem value="low">🟢 Baixa</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <label className="text-sm font-medium mb-1.5 block">Prazo (opcional)</label>
+                  <Input
+                    type="date"
+                    value={deadline}
+                    onChange={(e) => setDeadline(e.target.value)}
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-1.5 block">Horário (opcional)</label>
+                <Input type="time" value={taskTime} onChange={(e) => setTaskTime(e.target.value)} />
+              </div>
+              {!isOrderDialog && !preselectedAssignee && (
+                <div>
+                  <label className="text-sm font-medium mb-1.5 block">Atribuir a</label>
+                  {hasEmployeePerms && hasSectorPerms ? (
+                    <Tabs
+                      value={assignMode}
+                      onValueChange={(v) => {
+                        setAssignMode(v as 'employee' | 'sector');
+                        resetSeparacaoFields();
+                      }}
+                    >
+                      <TabsList className="w-full mb-2">
+                        <TabsTrigger value="employee" className="flex-1">
+                          Funcionário
+                        </TabsTrigger>
+                        <TabsTrigger value="sector" className="flex-1">
+                          Setor
+                        </TabsTrigger>
+                      </TabsList>
+                      <TabsContent value="employee">
+                        <Select
+                          value={assigneeId}
+                          onValueChange={(v) => {
+                            setAssigneeId(v);
+                            resetSeparacaoFields();
+                          }}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Selecione um funcionário" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {assignableUsers.map((e) => (
+                              <SelectItem key={e.id} value={e.id}>
+                                {e.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </TabsContent>
+                      <TabsContent value="sector">
+                        <Select
+                          value={sector}
+                          onValueChange={(v) => {
+                            setSector(v as Sector);
+                            resetSeparacaoFields();
+                          }}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Selecione um setor" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {assignableSectors.map((s) => (
+                              <SelectItem key={s} value={s}>
+                                {SECTOR_LABELS[s]}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <p className="text-xs text-muted-foreground mt-1.5">
+                          Qualquer funcionário do setor poderá resgatar esta tarefa.
+                        </p>
+                      </TabsContent>
+                    </Tabs>
+                  ) : hasEmployeePerms ? (
                     <Select
                       value={assigneeId}
                       onValueChange={(v) => {
@@ -961,565 +1289,616 @@ const CreateTaskDialog = ({ preselectedAssignee }: CreateTaskDialogProps) => {
                         ))}
                       </SelectContent>
                     </Select>
-                  </TabsContent>
-                  <TabsContent value="sector">
-                    <Select
-                      value={sector}
-                      onValueChange={(v) => {
-                        setSector(v as Sector);
-                        resetSeparacaoFields();
-                      }}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Selecione um setor" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {assignableSectors.map((s) => (
-                          <SelectItem key={s} value={s}>
-                            {SECTOR_LABELS[s]}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <p className="text-xs text-muted-foreground mt-1.5">
-                      Qualquer funcionário do setor poderá resgatar esta tarefa.
-                    </p>
-                  </TabsContent>
-                </Tabs>
-              ) : hasEmployeePerms ? (
-                <Select
-                  value={assigneeId}
-                  onValueChange={(v) => {
-                    setAssigneeId(v);
-                    resetSeparacaoFields();
-                  }}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecione um funcionário" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {assignableUsers.map((e) => (
-                      <SelectItem key={e.id} value={e.id}>
-                        {e.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              ) : (
-                <>
-                  <Select
-                    value={sector}
-                    onValueChange={(v) => {
-                      setSector(v as Sector);
-                      resetSeparacaoFields();
-                    }}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Selecione um setor" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {assignableSectors.map((s) => (
-                        <SelectItem key={s} value={s}>
-                          {SECTOR_LABELS[s]}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-muted-foreground mt-1.5">
-                    Qualquer funcionário do setor poderá resgatar esta tarefa.
-                  </p>
-                </>
-              )}
-            </div>
-          )}
-          {preselectedAssignee && <input type="hidden" value={assigneeId} />}
-
-          {/* Separação de Pedido - only for expedição */}
-          {isTargetingExpedicao && (
-            <div className="border border-border rounded-lg p-4 space-y-3 bg-muted/20">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Package className="w-4 h-4 text-primary" />
-                  <label className="text-sm font-medium">Separação de Pedido</label>
-                </div>
-                <Switch
-                  checked={isSeparacao}
-                  onCheckedChange={(v) => {
-                    setIsSeparacao(v);
-                    if (!v) {
-                      setIsTroca('');
-                      setPagamento('');
-                      setBoleto('');
-                      setMaquininha('');
-                      setEmissaoNF('');
-                      setFormaEntrega('');
-                    }
-                  }}
-                />
-              </div>
-
-              {isSeparacao && (
-                <div className="space-y-2 pt-1">
-                  {/* Endereço diferente do cadastro */}
-                  <div
-                    className={cn(
-                      'flex items-center justify-between rounded-md border-2 px-3 py-2 transition-colors',
-                      enderecoDiferente
-                        ? 'border-red-500 bg-red-500/10 ring-2 ring-red-500/40'
-                        : 'border-border'
-                    )}
-                  >
-                    <div className="flex flex-col pr-2">
-                      <span
-                        className={cn(
-                          'text-sm font-semibold',
-                          enderecoDiferente ? 'text-red-600 dark:text-red-400' : 'text-foreground'
-                        )}
+                  ) : (
+                    <>
+                      <Select
+                        value={sector}
+                        onValueChange={(v) => {
+                          setSector(v as Sector);
+                          resetSeparacaoFields();
+                        }}
                       >
-                        🚨 Endereço de envio diferente do cadastro
-                      </span>
-                      <span className="text-[11px] text-muted-foreground">
-                        Quando ativado, as tarefas geradas ficam destacadas em vermelho.
-                      </span>
-                    </div>
-                    <Switch checked={enderecoDiferente} onCheckedChange={setEnderecoDiferente} />
-                  </div>
-
-                  {/* Troca */}
-                  <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
-                    <span className="text-sm text-foreground">Caso de Troca?</span>
-                    <div className="flex gap-1">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant={isTroca === 'sim' ? 'default' : 'outline'}
-                        className="h-7 text-xs px-3"
-                        onClick={() => setIsTroca(isTroca === 'sim' ? '' : 'sim')}
-                      >
-                        Sim
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant={isTroca === 'nao' ? 'secondary' : 'outline'}
-                        className="h-7 text-xs px-3"
-                        onClick={() => setIsTroca(isTroca === 'nao' ? '' : 'nao')}
-                      >
-                        Não
-                      </Button>
-                    </div>
-                  </div>
-
-                  {/* Pagamento */}
-                  <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
-                    <span className="text-sm text-foreground">Pagamento</span>
-                    <div className="flex gap-1">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant={pagamento === 'pago' ? 'default' : 'outline'}
-                        className="h-7 text-xs px-3"
-                        onClick={() => setPagamento(pagamento === 'pago' ? '' : 'pago')}
-                      >
-                        Pago
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant={pagamento === 'nao_pago' ? 'destructive' : 'outline'}
-                        className="h-7 text-xs px-3"
-                        onClick={() => setPagamento(pagamento === 'nao_pago' ? '' : 'nao_pago')}
-                      >
-                        Não Pago
-                      </Button>
-                    </div>
-                  </div>
-
-                  {/* Usar Créditos - aparece quando PAGO */}
-                  {pagamento === 'pago' && (
-                    <div className="rounded-md border border-primary/40 bg-primary/5 px-3 py-2 flex items-center justify-between gap-3">
-                      <div className="flex flex-col">
-                        <span className="text-sm font-medium text-foreground">
-                          🪙 Usar Créditos
-                        </span>
-                        <span className="text-[11px] text-muted-foreground">
-                          Cliente irá abater com créditos. Comprovante torna-se opcional.
-                        </span>
-                      </div>
-                      <Switch
-                        checked={usarCreditos}
-                        onCheckedChange={(v) => setUsarCreditos(!!v)}
-                      />
-                    </div>
-                  )}
-
-                  {/* Comprovante de Pagamento - obrigatório quando PAGO, opcional se Usar Créditos */}
-                  {pagamento === 'pago' && (
-                    <div
-                      className={`rounded-md border px-3 py-2 space-y-2 ${
-                        usarCreditos
-                          ? 'border-border bg-muted/20'
-                          : 'border-warning/40 bg-warning/5'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-xs font-medium text-foreground">
-                          💳 Comprovante de Pagamento{' '}
-                          {usarCreditos ? (
-                            <span className="text-muted-foreground font-normal">(opcional)</span>
-                          ) : (
-                            <span className="text-destructive">*</span>
-                          )}
-                        </span>
-                        <div className="flex gap-1">
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            className="h-7 text-xs px-2"
-                            onClick={() => paymentProofInputRef.current?.click()}
-                          >
-                            <ImagePlus className="w-3 h-3 mr-1" /> Anexar
-                          </Button>
-                        </div>
-                        <input
-                          ref={paymentProofInputRef}
-                          type="file"
-                          accept="image/*,application/pdf"
-                          multiple
-                          className="hidden"
-                          onChange={(e) => {
-                            const files = Array.from(e.target.files || []);
-                            files.forEach(handleProofSelect);
-                            if (paymentProofInputRef.current)
-                              paymentProofInputRef.current.value = '';
-                          }}
-                        />
-                      </div>
-                      <Textarea
-                        placeholder="Cole aqui (Ctrl+V) uma imagem do comprovante ou clique em Anexar para enviar imagem/PDF"
-                        className="min-h-[44px] text-xs resize-none"
-                        readOnly
-                        onPaste={handleProofPaste}
-                      />
-                      {paymentProofPreviews.length > 0 && (
-                        <div className="flex flex-wrap gap-2">
-                          {paymentProofPreviews.map((src, i) => (
-                            <div
-                              key={i}
-                              className="relative w-16 h-16 rounded border border-border overflow-hidden bg-muted flex items-center justify-center"
-                            >
-                              {src === '__pdf__' ? (
-                                <span className="text-[10px] text-muted-foreground px-1 text-center">
-                                  📄 {paymentProofFiles[i]?.name.slice(0, 12) || 'PDF'}
-                                </span>
-                              ) : (
-                                <img
-                                  src={src}
-                                  alt={`comprovante ${i + 1}`}
-                                  className="w-full h-full object-cover"
-                                />
-                              )}
-                              <button
-                                type="button"
-                                onClick={() => removeProof(i)}
-                                className="absolute top-0 right-0 bg-destructive text-destructive-foreground rounded-bl px-1 text-[10px] leading-none"
-                              >
-                                ×
-                              </button>
-                            </div>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Selecione um setor" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {assignableSectors.map((s) => (
+                            <SelectItem key={s} value={s}>
+                              {SECTOR_LABELS[s]}
+                            </SelectItem>
                           ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground mt-1.5">
+                        Qualquer funcionário do setor poderá resgatar esta tarefa.
+                      </p>
+                    </>
+                  )}
+                </div>
+              )}
+              {preselectedAssignee && <input type="hidden" value={assigneeId} />}
+              {/* Separação de Pedido - only for expedição */}
+              {isTargetingExpedicao && (
+                <div className="min-w-0 space-y-4 rounded-xl border border-border bg-muted/20 p-4 sm:p-5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Package className="w-4 h-4 text-primary" />
+                      <label className="text-sm font-medium">Separação de Pedido</label>
+                    </div>
+                    <Switch
+                      checked={isSeparacao}
+                      disabled={isOrderDialog}
+                      className={isOrderDialog ? 'data-[state=checked]:bg-primary opacity-100' : ''}
+                      onCheckedChange={(v) => {
+                        setIsSeparacao(v);
+                        if (!v) {
+                          setIsTroca('');
+                          setPagamento('');
+                          setBoleto('');
+                          setMaquininha('');
+                          setEmissaoNF('');
+                          setFormaEntrega('');
+                        }
+                      }}
+                    />
+                  </div>
+
+                  {isSeparacao && (
+                    <div className="space-y-4 pt-1">
+                      {/* Endereço diferente do cadastro - no Pedido fica no bloco de cliente */}
+                      {!isOrderDialog && (
+                        <div
+                          className={cn(
+                            'flex items-center justify-between rounded-md border-2 px-3 py-2 transition-colors',
+                            enderecoDiferente
+                              ? 'border-red-500 bg-red-500/10 ring-2 ring-red-500/40'
+                              : 'border-border'
+                          )}
+                        >
+                          <div className="flex flex-col pr-2">
+                            <span
+                              className={cn(
+                                'text-sm font-semibold',
+                                enderecoDiferente
+                                  ? 'text-red-600 dark:text-red-400'
+                                  : 'text-foreground'
+                              )}
+                            >
+                              🚨 Endereço de envio diferente do cadastro
+                            </span>
+                            <span className="text-[11px] text-muted-foreground">
+                              Quando ativado, as tarefas geradas ficam destacadas em vermelho.
+                            </span>
+                          </div>
+                          <Switch
+                            checked={enderecoDiferente}
+                            onCheckedChange={setEnderecoDiferente}
+                          />
                         </div>
                       )}
-                    </div>
-                  )}
 
-                  {/* Boleto */}
-                  <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
-                    <span className="text-sm text-foreground">Boleto</span>
-                    <div className="flex gap-1">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant={boleto === 'com' ? 'default' : 'outline'}
-                        className="h-7 text-xs px-3"
-                        onClick={() => setBoleto(boleto === 'com' ? '' : 'com')}
-                      >
-                        Com Boleto
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant={boleto === 'sem' ? 'secondary' : 'outline'}
-                        className="h-7 text-xs px-3"
-                        onClick={() => setBoleto(boleto === 'sem' ? '' : 'sem')}
-                      >
-                        Sem Boleto
-                      </Button>
-                    </div>
-                  </div>
-
-                  {/* Emissão de NF (opcional) */}
-                  <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
-                    <span className="text-sm text-foreground">🧾 Emissão de NF</span>
-                    <div className="flex gap-1">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant={emissaoNF === 'sim' ? 'default' : 'outline'}
-                        className="h-7 text-xs px-3"
-                        onClick={() => setEmissaoNF(emissaoNF === 'sim' ? '' : 'sim')}
-                      >
-                        Sim
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant={emissaoNF === 'nao' ? 'secondary' : 'outline'}
-                        className="h-7 text-xs px-3"
-                        onClick={() => setEmissaoNF(emissaoNF === 'nao' ? '' : 'nao')}
-                      >
-                        Não
-                      </Button>
-                    </div>
-                  </div>
-
-                  {/* Maquininha */}
-                  <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
-                    <span className="text-sm text-foreground">Maquininha</span>
-                    <div className="flex gap-1">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant={maquininha === 'sim' ? 'default' : 'outline'}
-                        className="h-7 text-xs px-3"
-                        onClick={() => setMaquininha(maquininha === 'sim' ? '' : 'sim')}
-                      >
-                        Levar
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant={maquininha === 'nao' ? 'secondary' : 'outline'}
-                        className="h-7 text-xs px-3"
-                        onClick={() => setMaquininha(maquininha === 'nao' ? '' : 'nao')}
-                      >
-                        Não Levar
-                      </Button>
-                    </div>
-                  </div>
-
-                  {/* Forma de Entrega */}
-                  <div className="rounded-md border border-border px-3 py-2 space-y-2">
-                    <span className="text-sm text-foreground">Forma de Entrega</span>
-                    <div className="grid grid-cols-2 gap-1.5">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant={formaEntrega === 'motoboy' ? 'default' : 'outline'}
-                        className="h-8 text-xs"
-                        onClick={() => {
-                          setFormaEntrega(formaEntrega === 'motoboy' ? '' : 'motoboy');
-                          setModalidadeCorreios('');
-                        }}
-                      >
-                        🏍️ Motoboy
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant={formaEntrega === 'correios' ? 'default' : 'outline'}
-                        className="h-8 text-xs"
-                        onClick={() => {
-                          setFormaEntrega(formaEntrega === 'correios' ? '' : 'correios');
-                          if (formaEntrega === 'correios') setModalidadeCorreios('');
-                        }}
-                      >
-                        📮 Correios
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant={formaEntrega === 'transportadora' ? 'default' : 'outline'}
-                        className="h-8 text-xs"
-                        onClick={() => {
-                          const next = formaEntrega === 'transportadora' ? '' : 'transportadora';
-                          setFormaEntrega(next);
-                          setModalidadeCorreios('');
-                          if (next !== 'transportadora') {
-                            setTransportadora('');
-                            setTransportadoraOutros('');
-                          }
-                        }}
-                      >
-                        🚛 Transportadora
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant={formaEntrega === 'balcao' ? 'default' : 'outline'}
-                        className="h-8 text-xs"
-                        onClick={() => {
-                          setFormaEntrega(formaEntrega === 'balcao' ? '' : 'balcao');
-                          setModalidadeCorreios('');
-                        }}
-                      >
-                        🏪 Balcão
-                      </Button>
-                    </div>
-                    {formaEntrega === 'motoboy' && (
-                      <p className="text-xs text-muted-foreground">
-                        ⚠️ Corrida será enviada para Patrícia aprovar.
-                      </p>
-                    )}
-                    {formaEntrega === 'correios' && (
-                      <div className="space-y-2 pt-1">
+                      <div className="grid gap-2">
+                        {/* Troca */}
                         <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
-                          <span className="text-sm text-foreground">Modalidade</span>
+                          <span className="text-sm text-foreground">Caso de Troca?</span>
                           <div className="flex gap-1">
                             <Button
                               type="button"
                               size="sm"
-                              variant={modalidadeCorreios === 'sedex' ? 'default' : 'outline'}
+                              variant={isTroca === 'sim' ? 'default' : 'outline'}
                               className="h-7 text-xs px-3"
-                              onClick={() =>
-                                setModalidadeCorreios(modalidadeCorreios === 'sedex' ? '' : 'sedex')
-                              }
+                              onClick={() => setIsTroca(isTroca === 'sim' ? '' : 'sim')}
                             >
-                              SEDEX
+                              Sim
                             </Button>
                             <Button
                               type="button"
                               size="sm"
-                              variant={modalidadeCorreios === 'pac' ? 'default' : 'outline'}
+                              variant={isTroca === 'nao' ? 'default' : 'outline'}
                               className="h-7 text-xs px-3"
-                              onClick={() =>
-                                setModalidadeCorreios(modalidadeCorreios === 'pac' ? '' : 'pac')
-                              }
+                              onClick={() => setIsTroca(isTroca === 'nao' ? '' : 'nao')}
                             >
-                              PAC
+                              Não
                             </Button>
                           </div>
                         </div>
-                        {modalidadeCorreios && (
-                          <p className="text-xs text-muted-foreground">
-                            📋 Tarefa de etiqueta será criada para William.
-                          </p>
-                        )}
-                      </div>
-                    )}
-                    {formaEntrega === 'transportadora' && (
-                      <div className="space-y-2 pt-1">
-                        <div className="rounded-md border border-border px-3 py-2 space-y-2">
-                          <span className="text-sm text-foreground">Transportadora</span>
-                          <div className="grid grid-cols-3 gap-1.5">
-                            {activeCarriers.map((c) => (
-                              <Button
-                                key={c.id}
-                                type="button"
-                                size="sm"
-                                variant={transportadora === c.name ? 'default' : 'outline'}
-                                className="h-8 text-xs"
-                                onClick={() => {
-                                  setTransportadora(transportadora === c.name ? '' : c.name);
-                                  setTransportadoraOutros('');
-                                }}
-                              >
-                                {c.name}
-                              </Button>
-                            ))}
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant={transportadora === 'outros' ? 'default' : 'outline'}
-                              className="h-8 text-xs"
-                              onClick={() =>
-                                setTransportadora(transportadora === 'outros' ? '' : 'outros')
-                              }
-                            >
-                              Outros
-                            </Button>
-                          </div>
-                          {activeCarriers.length === 0 && (
-                            <p className="text-[11px] text-muted-foreground">
-                              Nenhuma transportadora cadastrada. Use "Outros" ou peça a um
-                              administrador para cadastrar em Corporativo › Transportadoras.
-                            </p>
-                          )}
-                          {transportadora === 'outros' && (
-                            <Input
-                              placeholder="Nome da transportadora"
-                              value={transportadoraOutros}
-                              onChange={(e) => setTransportadoraOutros(e.target.value)}
-                              className="h-8 text-xs"
-                            />
-                          )}
-                        </div>
-                        {transportadora &&
-                          (transportadora !== 'outros' || transportadoraOutros.trim()) && (
-                            <p className="text-xs text-muted-foreground">
-                              📋 Tarefa pessoal será criada para Patrícia.
-                            </p>
-                          )}
-                      </div>
-                    )}
-                  </div>
 
-                  {/* OCR Image field for Sedex/PAC ou Transportadora selecionada */}
-                  {(modalidadeCorreios === 'sedex' ||
-                    modalidadeCorreios === 'pac' ||
-                    (formaEntrega === 'transportadora' &&
-                      transportadora &&
-                      (transportadora !== 'outros' || transportadoraOutros.trim()))) && (
-                    <div className="rounded-md border border-border px-3 py-2 space-y-2">
-                      <div className="flex items-center gap-2">
-                        <ScanText className="w-4 h-4 text-primary" />
-                        <span className="text-sm text-foreground">
-                          Colar imagem para transcrição IA
-                        </span>
-                      </div>
-                      <div
-                        className="min-h-[60px] rounded-md border-2 border-dashed border-muted-foreground/30 flex items-center justify-center cursor-pointer hover:border-primary/50 transition-colors"
-                        onPaste={handleOcrPaste}
-                        tabIndex={0}
-                      >
-                        {ocrLoading ? (
-                          <div className="flex items-center gap-2 text-sm text-muted-foreground py-3">
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                            Transcrevendo...
-                          </div>
-                        ) : ocrImage ? (
-                          <div className="relative p-2">
-                            <img
-                              src={ocrImage}
-                              alt="OCR"
-                              className="max-h-24 rounded border border-border"
-                            />
-                            <button
-                              onClick={() => setOcrImage(null)}
-                              className="absolute -top-1 -right-1 bg-destructive text-destructive-foreground rounded-full p-0.5"
+                        {/* Pagamento */}
+                        <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
+                          <span className="text-sm text-foreground">Pagamento</span>
+                          <div className="flex gap-1">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant={pagamento === 'pago' ? 'default' : 'outline'}
+                              className="h-7 text-xs px-3"
+                              onClick={() => setPagamento(pagamento === 'pago' ? '' : 'pago')}
                             >
-                              <X className="w-3 h-3" />
-                            </button>
+                              Pago
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant={pagamento === 'nao_pago' ? 'destructive' : 'outline'}
+                              className="h-7 text-xs px-3"
+                              onClick={() =>
+                                setPagamento(pagamento === 'nao_pago' ? '' : 'nao_pago')
+                              }
+                            >
+                              Não Pago
+                            </Button>
                           </div>
-                        ) : (
-                          <p className="text-xs text-muted-foreground py-3">
-                            Cole uma imagem aqui (Ctrl+V) para transcrever automaticamente
+                        </div>
+
+                        {/* Usar Créditos - aparece quando PAGO */}
+                        {pagamento === 'pago' && (
+                          <div className="rounded-md border border-primary/40 bg-primary/5 px-3 py-2 flex items-center justify-between gap-3">
+                            <div className="flex flex-col">
+                              <span className="text-sm font-medium text-foreground">
+                                🪙 Usar Créditos
+                              </span>
+                              <span className="text-[11px] text-muted-foreground">
+                                Cliente irá abater com créditos. Comprovante torna-se opcional.
+                              </span>
+                            </div>
+                            <Switch
+                              checked={usarCreditos}
+                              onCheckedChange={(v) => setUsarCreditos(!!v)}
+                            />
+                          </div>
+                        )}
+
+                        {/* Comprovante de Pagamento - obrigatório quando PAGO, opcional se Usar Créditos */}
+                        {pagamento === 'pago' && (
+                          <div
+                            className={`md:col-span-2 rounded-md border px-3 py-2 space-y-2 ${
+                              usarCreditos
+                                ? 'border-border bg-muted/20'
+                                : 'border-warning/40 bg-warning/5'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-xs font-medium text-foreground">
+                                💳 Comprovante de Pagamento{' '}
+                                {usarCreditos ? (
+                                  <span className="text-muted-foreground font-normal">
+                                    (opcional)
+                                  </span>
+                                ) : (
+                                  <span className="text-destructive">*</span>
+                                )}
+                              </span>
+                              <div className="flex gap-1">
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 text-xs px-2"
+                                  onClick={() => paymentProofInputRef.current?.click()}
+                                >
+                                  <ImagePlus className="w-3 h-3 mr-1" /> Anexar
+                                </Button>
+                              </div>
+                              <input
+                                ref={paymentProofInputRef}
+                                type="file"
+                                accept="image/*,application/pdf"
+                                multiple
+                                className="hidden"
+                                onChange={(e) => {
+                                  const files = Array.from(e.target.files || []);
+                                  files.forEach(handleProofSelect);
+                                  if (paymentProofInputRef.current)
+                                    paymentProofInputRef.current.value = '';
+                                }}
+                              />
+                            </div>
+                            <Textarea
+                              placeholder="Cole aqui (Ctrl+V) uma imagem do comprovante ou clique em Anexar para enviar imagem/PDF"
+                              className="min-h-[44px] text-xs resize-none"
+                              readOnly
+                              onPaste={handleProofPaste}
+                            />
+                            {paymentProofPreviews.length > 0 && (
+                              <div className="flex flex-wrap gap-2">
+                                {paymentProofPreviews.map((src, i) => (
+                                  <div
+                                    key={i}
+                                    className="relative w-16 h-16 rounded border border-border overflow-hidden bg-muted flex items-center justify-center"
+                                  >
+                                    {src === '__pdf__' ? (
+                                      <span className="text-[10px] text-muted-foreground px-1 text-center">
+                                        📄 {paymentProofFiles[i]?.name.slice(0, 12) || 'PDF'}
+                                      </span>
+                                    ) : (
+                                      <img
+                                        src={src}
+                                        alt={`comprovante ${i + 1}`}
+                                        className="w-full h-full object-cover"
+                                      />
+                                    )}
+                                    <button
+                                      type="button"
+                                      onClick={() => removeProof(i)}
+                                      className="absolute top-0 right-0 bg-destructive text-destructive-foreground rounded-bl px-1 text-[10px] leading-none"
+                                    >
+                                      ×
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Boleto */}
+                        <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
+                          <span className="text-sm text-foreground">Boleto</span>
+                          <div className="flex gap-1">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant={boleto === 'com' ? 'default' : 'outline'}
+                              className="h-7 text-xs px-3"
+                              onClick={() => setBoleto(boleto === 'com' ? '' : 'com')}
+                            >
+                              Com Boleto
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant={boleto === 'sem' ? 'default' : 'outline'}
+                              className="h-7 text-xs px-3"
+                              onClick={() => setBoleto(boleto === 'sem' ? '' : 'sem')}
+                            >
+                              Sem Boleto
+                            </Button>
+                          </div>
+                        </div>
+
+                        {/* Emissão de NF (opcional) */}
+                        <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
+                          <span className="text-sm text-foreground">🧾 Emissão de NF</span>
+                          <div className="flex gap-1">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant={emissaoNF === 'sim' ? 'default' : 'outline'}
+                              className="h-7 text-xs px-3"
+                              onClick={() => setEmissaoNF(emissaoNF === 'sim' ? '' : 'sim')}
+                            >
+                              Sim
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant={emissaoNF === 'nao' ? 'default' : 'outline'}
+                              className="h-7 text-xs px-3"
+                              onClick={() => setEmissaoNF(emissaoNF === 'nao' ? '' : 'nao')}
+                            >
+                              Não
+                            </Button>
+                          </div>
+                        </div>
+
+                        {/* Maquininha */}
+                        <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
+                          <span className="text-sm text-foreground">Maquininha</span>
+                          <div className="flex gap-1">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant={maquininha === 'sim' ? 'default' : 'outline'}
+                              className="h-7 text-xs px-3"
+                              onClick={() => setMaquininha(maquininha === 'sim' ? '' : 'sim')}
+                            >
+                              Levar
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant={maquininha === 'nao' ? 'default' : 'outline'}
+                              className="h-7 text-xs px-3"
+                              onClick={() => setMaquininha(maquininha === 'nao' ? '' : 'nao')}
+                            >
+                              Não Levar
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Forma de Entrega */}
+                      <div className="rounded-md border border-border px-3 py-2 space-y-2">
+                        <span className="text-sm text-foreground">Forma de Entrega</span>
+                        <div className="grid grid-cols-2 gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant={formaEntrega === 'motoboy' ? 'default' : 'outline'}
+                            className="h-8 text-xs"
+                            onClick={() => {
+                              setFormaEntrega(formaEntrega === 'motoboy' ? '' : 'motoboy');
+                              setModalidadeCorreios('');
+                            }}
+                          >
+                            🏍️ Motoboy
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant={formaEntrega === 'correios' ? 'default' : 'outline'}
+                            className="h-8 text-xs"
+                            onClick={() => {
+                              setFormaEntrega(formaEntrega === 'correios' ? '' : 'correios');
+                              if (formaEntrega === 'correios') setModalidadeCorreios('');
+                            }}
+                          >
+                            📮 Correios
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant={formaEntrega === 'transportadora' ? 'default' : 'outline'}
+                            className="h-8 text-xs"
+                            onClick={() => {
+                              const next =
+                                formaEntrega === 'transportadora' ? '' : 'transportadora';
+                              setFormaEntrega(next);
+                              setModalidadeCorreios('');
+                              if (next !== 'transportadora') {
+                                setTransportadora('');
+                                setTransportadoraOutros('');
+                              }
+                            }}
+                          >
+                            🚛 Transportadora
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant={formaEntrega === 'balcao' ? 'default' : 'outline'}
+                            className="h-8 text-xs"
+                            onClick={() => {
+                              setFormaEntrega(formaEntrega === 'balcao' ? '' : 'balcao');
+                              setModalidadeCorreios('');
+                            }}
+                          >
+                            🏪 Balcão
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant={formaEntrega === 'uber' ? 'default' : 'outline'}
+                            className="h-8 text-xs sm:col-span-2"
+                            onClick={() => {
+                              setFormaEntrega(formaEntrega === 'uber' ? '' : 'uber');
+                              setModalidadeCorreios('');
+                              setTransportadora('');
+                            }}
+                          >
+                            🚗 Uber (integração futura)
+                          </Button>
+                        </div>
+                        {formaEntrega === 'uber' && (
+                          <p className="text-xs text-muted-foreground">
+                            Modalidade registrada no pedido. Ainda não gera despacho automatizado.
                           </p>
                         )}
+                        {formaEntrega === 'motoboy' && (
+                          <p className="text-xs text-muted-foreground">
+                            Corrida será criada em Pendentes, pronta para designação.
+                          </p>
+                        )}
+                        {formaEntrega === 'correios' && (
+                          <div className="space-y-2 pt-1">
+                            <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
+                              <span className="text-sm text-foreground">Modalidade</span>
+                              <div className="flex gap-1">
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant={modalidadeCorreios === 'sedex' ? 'default' : 'outline'}
+                                  className="h-7 text-xs px-3"
+                                  onClick={() =>
+                                    setModalidadeCorreios(
+                                      modalidadeCorreios === 'sedex' ? '' : 'sedex'
+                                    )
+                                  }
+                                >
+                                  SEDEX
+                                </Button>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant={modalidadeCorreios === 'pac' ? 'default' : 'outline'}
+                                  className="h-7 text-xs px-3"
+                                  onClick={() =>
+                                    setModalidadeCorreios(modalidadeCorreios === 'pac' ? '' : 'pac')
+                                  }
+                                >
+                                  PAC
+                                </Button>
+                              </div>
+                            </div>
+                            {modalidadeCorreios && (
+                              <p className="text-xs text-muted-foreground">
+                                📋 Tarefa de etiqueta será criada para William.
+                              </p>
+                            )}
+                          </div>
+                        )}
+                        {formaEntrega === 'transportadora' && (
+                          <div className="space-y-2 pt-1">
+                            <div className="rounded-md border border-border px-3 py-2 space-y-2">
+                              <span className="text-sm text-foreground">Transportadora</span>
+                              <div className="grid grid-cols-3 gap-1.5">
+                                {activeCarriers.map((c) => (
+                                  <Button
+                                    key={c.id}
+                                    type="button"
+                                    size="sm"
+                                    variant={transportadora === c.name ? 'default' : 'outline'}
+                                    className="h-8 text-xs"
+                                    onClick={() => {
+                                      setTransportadora(transportadora === c.name ? '' : c.name);
+                                      setTransportadoraOutros('');
+                                    }}
+                                  >
+                                    {c.name}
+                                  </Button>
+                                ))}
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant={transportadora === 'outros' ? 'default' : 'outline'}
+                                  className="h-8 text-xs"
+                                  onClick={() =>
+                                    setTransportadora(transportadora === 'outros' ? '' : 'outros')
+                                  }
+                                >
+                                  Outros
+                                </Button>
+                              </div>
+                              {activeCarriers.length === 0 && (
+                                <p className="text-[11px] text-muted-foreground">
+                                  Nenhuma transportadora cadastrada. Use "Outros" ou peça a um
+                                  administrador para cadastrar em Corporativo › Transportadoras.
+                                </p>
+                              )}
+                              {transportadora === 'outros' && (
+                                <Input
+                                  placeholder="Nome da transportadora"
+                                  value={transportadoraOutros}
+                                  onChange={(e) => setTransportadoraOutros(e.target.value)}
+                                  className="h-8 text-xs"
+                                />
+                              )}
+                            </div>
+                            {transportadora &&
+                              (transportadora !== 'outros' || transportadoraOutros.trim()) && (
+                                <p className="text-xs text-muted-foreground">
+                                  📋 Tarefa pessoal será criada para Patrícia.
+                                </p>
+                              )}
+                          </div>
+                        )}
                       </div>
+
+                      {/* OCR Image field for Sedex/PAC ou Transportadora selecionada */}
+                      {(modalidadeCorreios === 'sedex' ||
+                        modalidadeCorreios === 'pac' ||
+                        (formaEntrega === 'transportadora' &&
+                          transportadora &&
+                          (transportadora !== 'outros' || transportadoraOutros.trim()))) && (
+                        <div className="rounded-md border border-border px-3 py-2 space-y-2">
+                          <div className="flex items-center gap-2">
+                            <ScanText className="w-4 h-4 text-primary" />
+                            <span className="text-sm text-foreground">
+                              Colar imagem para transcrição IA
+                            </span>
+                          </div>
+                          <div
+                            className="min-h-[60px] rounded-md border-2 border-dashed border-muted-foreground/30 flex items-center justify-center cursor-pointer hover:border-primary/50 transition-colors"
+                            onPaste={handleOcrPaste}
+                            tabIndex={0}
+                          >
+                            {ocrLoading ? (
+                              <div className="flex items-center gap-2 text-sm text-muted-foreground py-3">
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                                Transcrevendo...
+                              </div>
+                            ) : ocrImage ? (
+                              <div className="relative p-2">
+                                <img
+                                  src={ocrImage}
+                                  alt="OCR"
+                                  className="max-h-24 rounded border border-border"
+                                />
+                                <button
+                                  onClick={() => setOcrImage(null)}
+                                  className="absolute -top-1 -right-1 bg-destructive text-destructive-foreground rounded-full p-0.5"
+                                >
+                                  <X className="w-3 h-3" />
+                                </button>
+                              </div>
+                            ) : (
+                              <p className="text-xs text-muted-foreground py-3">
+                                Cole uma imagem aqui (Ctrl+V) para transcrever automaticamente
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
               )}
             </div>
-          )}
+          </div>
 
-          <Button className="w-full" onClick={handleSubmit} disabled={!isValid || uploading}>
-            {uploading ? 'Enviando...' : 'Criar Tarefa'}
-          </Button>
+          <div className="border-t border-border/70 pt-4 lg:col-span-2">
+            <Button
+              className="h-11 w-full text-sm font-semibold"
+              onClick={handleSubmit}
+              disabled={
+                !isValid || uploading || (isOrderDialog && (!isTargetingExpedicao || !isSeparacao))
+              }
+            >
+              {uploading ? 'Enviando...' : isOrderDialog ? 'Criar Pedido' : 'Criar Tarefa'}
+            </Button>
+          </div>
         </div>
       </DialogContent>
+      {isOrderDialog && (
+        <>
+          <Dialog open={clientPickerOpen} onOpenChange={setClientPickerOpen}>
+            <DialogContent className="max-h-[85vh] max-w-xl overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>Selecionar cliente</DialogTitle>
+                <DialogDescription>Cadastro de Departamental → Clientes.</DialogDescription>
+              </DialogHeader>
+              <Input
+                aria-label="Buscar cliente cadastrado"
+                placeholder="Buscar nome, telefone ou endereço"
+                value={clientQuery}
+                onChange={(e) => setClientQuery(e.target.value)}
+              />
+              {clientReadError && (
+                <p className="text-sm text-destructive">Sem acesso à base de clientes.</p>
+              )}
+              <div className="max-h-[45vh] space-y-1 overflow-y-auto">
+                {clients
+                  .filter((c) =>
+                    [c.companyName, c.contactPerson, c.phone, c.address].some((v) =>
+                      (v || '')
+                        .toLocaleLowerCase('pt-BR')
+                        .includes(clientQuery.toLocaleLowerCase('pt-BR'))
+                    )
+                  )
+                  .slice(0, 50)
+                  .map((client) => (
+                    <button
+                      key={client.id}
+                      type="button"
+                      className="w-full rounded-lg border border-border p-3 text-left hover:bg-accent"
+                      onClick={() => chooseClient(client)}
+                    >
+                      <span className="block text-sm font-medium">{client.companyName}</span>
+                      <span className="block truncate text-xs text-muted-foreground">
+                        {client.address}
+                      </span>
+                    </button>
+                  ))}
+              </div>
+            </DialogContent>
+          </Dialog>
+          <ClientEditorDialog
+            open={clientCreatorOpen}
+            onOpenChange={setClientCreatorOpen}
+            onSave={registerClient}
+          />
+        </>
+      )}
     </Dialog>
   );
 };

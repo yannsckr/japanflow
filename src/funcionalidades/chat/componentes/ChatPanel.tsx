@@ -580,7 +580,7 @@ const ChatPanel = ({ otherUser }: ChatPanelProps) => {
   };
 
   const handleMessageSwipe = (msg: ChatMessage, dx: number, dy: number) => {
-    if (msg.deleted || Math.abs(dx) < 65 || Math.abs(dx) <= Math.abs(dy) * 1.5) return;
+    if (msg.deleted || Math.abs(dx) < 55 || Math.abs(dx) <= Math.abs(dy) * 1.25) return;
     setReactionsFor(null);
     if (dx > 0) {
       setDetailsMessage(null);
@@ -656,7 +656,7 @@ const ChatPanel = ({ otherUser }: ChatPanelProps) => {
           }}
           onDragStart={(event) => event.preventDefault()}
           onPointerDown={(event) => {
-            if (msg.deleted || event.pointerType === 'mouse') return;
+            if (msg.deleted || (event.pointerType === 'mouse' && event.button !== 0)) return;
             const target = event.target as HTMLElement;
             if (target.closest('button, a, img, input, textarea, video, audio')) return;
             pointerSwipeStart.current = {
@@ -674,7 +674,7 @@ const ChatPanel = ({ otherUser }: ChatPanelProps) => {
             if (!start || start.id !== msg.id || start.pointerId !== event.pointerId) return;
             const dx = event.clientX - start.x;
             const dy = event.clientY - start.y;
-            if (!start.dragging && Math.abs(dx) > 9 && Math.abs(dx) > Math.abs(dy) * 1.2)
+            if (!start.dragging && Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy) * 1.2)
               start.dragging = true;
             if (start.dragging) {
               if (event.cancelable) event.preventDefault();
@@ -699,6 +699,7 @@ const ChatPanel = ({ otherUser }: ChatPanelProps) => {
           }}
           style={{
             touchAction: 'pan-y',
+            userSelect: draggedMessage?.id === msg.id ? 'none' : undefined,
             transform:
               draggedMessage?.id === msg.id ? `translateX(${draggedMessage.dx}px)` : undefined,
             transition: draggedMessage?.id === msg.id ? 'none' : 'transform 180ms ease-out',
