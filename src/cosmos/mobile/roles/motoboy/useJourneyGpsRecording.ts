@@ -78,8 +78,14 @@ export function useJourneyGpsRecording(userId: string | undefined, rides: Ride[]
       const segment = prev ? measureGpsSegment(prev, point) : null;
       previous.current = point;
       lastAt.current = point.timestamp;
-      if (segment && !segment.accepted && segment.reason === 'stationary') return;
-      if (segment && !segment.accepted && segment.reason !== 'time') return;
+      if (
+        segment &&
+        !segment.accepted &&
+        ('reason' in segment ? segment.reason : null) === 'stationary'
+      )
+        return;
+      if (segment && !segment.accepted && ('reason' in segment ? segment.reason : null) !== 'time')
+        return;
       const rideId = ridesRef.current.length === 1 ? ridesRef.current[0] : null;
       queue.current = queue.current
         .catch(() => undefined)

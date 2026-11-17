@@ -118,7 +118,7 @@ export default function MotoboyRideDetailsDialog({
       const current: GpsSample = { ...p, timestamp: p.at };
       const segment = measureGpsSegment(previous, current);
       if (segment.accepted) meters += segment.meters;
-      else if (segment.reason === 'time') gaps++;
+      else if (('reason' in segment ? segment.reason : null) === 'time') gaps++;
     });
     return { meters, gaps };
   }, [points]);

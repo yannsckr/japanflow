@@ -52,8 +52,8 @@ export function summarizeJourneyGps(points: JourneyGpsPoint[]): JourneyGpsSummar
     if (segment.accepted) {
       meters += segment.meters;
       validSegments++;
-    } else if (segment.reason === 'time') gaps++;
-    else if (segment.reason !== 'stationary') rejectedSegments++;
+    } else if (('reason' in segment ? segment.reason : null) === 'time') gaps++;
+    else if (('reason' in segment ? segment.reason : null) !== 'stationary') rejectedSegments++;
   }
   return { distanceKm: Math.round(meters / 10) / 100, validSegments, gaps, rejectedSegments };
 }

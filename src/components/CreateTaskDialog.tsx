@@ -162,6 +162,10 @@ const CreateTaskDialog = ({ preselectedAssignee, mode = 'task' }: CreateTaskDial
               contactPerson: String(data.contact_person || ''),
               phone: String(data.phone || ''),
               address: String(data.address || ''),
+              distanceFromStoreMeters:
+                typeof data.distance_from_store_meters === 'number'
+                  ? data.distance_from_store_meters
+                  : null,
               createdAt: '',
             };
           })
