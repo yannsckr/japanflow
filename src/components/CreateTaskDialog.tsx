@@ -36,7 +36,8 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Switch } from '@/components/ui/switch';
 
-import { db } from '@/lib/firebase';
+import app, { db } from '@/lib/firebase';
+import { getFunctions, httpsCallable } from 'firebase/functions';
 import {
   addDoc,
   collection,
@@ -606,7 +607,7 @@ const CreateTaskDialog = ({ preselectedAssignee, mode = 'task' }: CreateTaskDial
         .join(' | ');
       const infoTag = buildOrderInfoNotes();
       const fullNotes = [separacaoDetails, infoTag].filter(Boolean).join(' ');
-      await addDoc(collection(db, 'motoboy_assignments'), {
+      const createdRide = await addDoc(collection(db, 'motoboy_assignments'), {
         description: enderecoDiferente
           ? `🚨 ENDEREÇO DIFERENTE - Entrega: ${titleForTask}`
           : `Entrega: ${titleForTask}`,
@@ -621,6 +622,15 @@ const CreateTaskDialog = ({ preselectedAssignee, mode = 'task' }: CreateTaskDial
         created_at: Timestamp.now(),
         updated_at: Timestamp.now(),
       });
+      if (effectiveDeliveryAddress.trim()) {
+        const estimate = httpsCallable<{ action: string; rideId: string }, unknown>(
+          getFunctions(app, 'southamerica-east1'),
+          'googleRoutePlanner'
+        );
+        void estimate({ action: 'estimateRideAndPersist', rideId: createdRide.id }).catch((error) =>
+          console.warn('[pedido] km previsto não calculado', error)
+        );
+      }
       toast.info('Corrida criada em Pendentes, pronta para designação.');
     }
 

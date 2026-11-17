@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { db } from '@/lib/firebase';
+import app, { db } from '@/lib/firebase';
+import { getFunctions, httpsCallable } from 'firebase/functions';
 import {
   addDoc,
   collection,
@@ -86,8 +87,18 @@ export interface SupplyRequest {
   createdAt: string;
 }
 
+const estimateRideDistance = httpsCallable<{ action: string; rideId: string }, unknown>(
+  getFunctions(app, 'southamerica-east1'),
+  'googleRoutePlanner'
+);
+const saveClientWithDistance = httpsCallable<
+  Record<string, unknown>,
+  { clientId: string; distanceMeters: number }
+>(getFunctions(app, 'southamerica-east1'), 'googleRoutePlanner');
+
 export interface DepartmentalClient {
   id: string;
+  distanceFromStoreMeters: number | null;
   clientType: 'pf' | 'pj';
   companyName: string;
   contactPerson: string;
@@ -98,6 +109,11 @@ export interface DepartmentalClient {
 
 export interface MotoboyAssignment {
   id: string;
+  expectedDistanceMeters: number | null;
+  expectedLegMeters: number | null;
+  expectedReturnMeters: number | null;
+  expectedRouteTotalMeters: number | null;
+  routeId: string | null;
   description: string;
   assignedTo: string | null;
   assignedBy: string;
@@ -300,6 +316,10 @@ export const useDepartmental = () => {
                 contactPerson: r.contact_person || '',
                 phone: r.phone || '',
                 address: r.address || '',
+                distanceFromStoreMeters:
+                  typeof r.distance_from_store_meters === 'number'
+                    ? r.distance_from_store_meters
+                    : null,
                 createdAt: toIso(r.created_at) || new Date().toISOString(),
               };
             })
@@ -343,6 +363,17 @@ export const useDepartmental = () => {
               taskId: r.task_id || null,
               scheduledFor: toIso(r.scheduled_for) || r.scheduled_for || null,
               proofUrl: r.proof_url || null,
+              routeId: r.route_id || null,
+              expectedDistanceMeters:
+                typeof r.expected_distance_meters === 'number' ? r.expected_distance_meters : null,
+              expectedLegMeters:
+                typeof r.expected_leg_meters === 'number' ? r.expected_leg_meters : null,
+              expectedReturnMeters:
+                typeof r.expected_return_meters === 'number' ? r.expected_return_meters : null,
+              expectedRouteTotalMeters:
+                typeof r.expected_route_total_meters === 'number'
+                  ? r.expected_route_total_meters
+                  : null,
             }))
           );
         },
@@ -578,7 +609,7 @@ export const useDepartmental = () => {
     });
   }, []);
 
-  // Clients
+  // Clientes: o cálculo e a gravação são feitos no servidor, nunca aceitos do navegador.
   const addClient = useCallback(
     async (data: {
       companyName: string;
@@ -587,16 +618,7 @@ export const useDepartmental = () => {
       address?: string;
       clientType: 'pf' | 'pj';
     }) => {
-      await addDoc(collection(db, 'departmental_clients'), {
-        company_name: (data.companyName || '').trim(),
-        client_type: data.clientType,
-        company_name_normalized: (data.companyName || '').trim().toUpperCase(),
-        contact_person: (data.contactPerson || '').trim(),
-        phone: (data.phone || '').trim(),
-        address: (data.address || '').trim(),
-        created_at: serverTimestamp(),
-        updated_at: serverTimestamp(),
-      });
+      await saveClientWithDistance({ action: 'saveClientWithDistance', ...data });
     },
     []
   );
@@ -612,15 +634,7 @@ export const useDepartmental = () => {
         clientType: 'pf' | 'pj';
       }
     ) => {
-      await updateDoc(doc(db, 'departmental_clients', id), {
-        company_name: (data.companyName || '').trim(),
-        client_type: data.clientType,
-        company_name_normalized: (data.companyName || '').trim().toUpperCase(),
-        contact_person: (data.contactPerson || '').trim(),
-        phone: (data.phone || '').trim(),
-        address: (data.address || '').trim(),
-        updated_at: serverTimestamp(),
-      });
+      await saveClientWithDistance({ action: 'saveClientWithDistance', clientId: id, ...data });
     },
     []
   );
@@ -645,7 +659,7 @@ export const useDepartmental = () => {
       // Criacao = autorizacao operacional; sem motoboy, permanece na fila pendente.
       // Nenhuma task e criada ate existir destinatario real.
       if (!assignedTo) {
-        await addDoc(collection(db, 'motoboy_assignments'), {
+        const createdRide = await addDoc(collection(db, 'motoboy_assignments'), {
           description: desc,
           assigned_to: null,
           assigned_by: assignedBy,
@@ -661,6 +675,11 @@ export const useDepartmental = () => {
           accepted_at: null,
           completed_at: null,
         });
+        if (location?.trim())
+          void estimateRideDistance({
+            action: 'estimateRideAndPersist',
+            rideId: createdRide.id,
+          }).catch((error) => console.warn('[motoboy] km previsto pendente', error));
         return;
       }
 
@@ -693,7 +712,7 @@ export const useDepartmental = () => {
         updated_at: Timestamp.now(),
       });
 
-      await addDoc(collection(db, 'motoboy_assignments'), {
+      const createdRide = await addDoc(collection(db, 'motoboy_assignments'), {
         description: desc,
         assigned_to: assignedTo,
         assigned_by: assignedBy,
@@ -709,6 +728,11 @@ export const useDepartmental = () => {
         accepted_at: null,
         completed_at: null,
       });
+      if (location?.trim())
+        void estimateRideDistance({
+          action: 'estimateRideAndPersist',
+          rideId: createdRide.id,
+        }).catch((error) => console.warn('[motoboy] km previsto pendente', error));
     },
     []
   );

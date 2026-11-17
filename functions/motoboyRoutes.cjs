@@ -79,10 +79,106 @@ exports.googleRoutePlanner = onCall(cfg, async (request) => {
       intermediates: stops.map((s) => waypoint(s.destination_place_id, s.location)),
       travelMode: 'DRIVE', languageCode: 'pt-BR', routingPreference: 'TRAFFIC_UNAWARE',
       polylineQuality: 'HIGH_QUALITY',
-    }, 'routes.polyline.encodedPolyline,routes.distanceMeters,routes.duration');
+    }, 'routes.polyline.encodedPolyline,routes.distanceMeters,routes.duration,routes.legs.distanceMeters');
     const route = result.routes?.[0];
     if (!route?.polyline?.encodedPolyline) throw new HttpsError('unavailable', 'Google Routes não retornou o trajeto.');
-    return { polyline: route.polyline.encodedPolyline, distanceMeters: route.distanceMeters || 0, count: stops.length };
+    return { polyline: route.polyline.encodedPolyline, distanceMeters: route.distanceMeters || 0, count: stops.length, legsMeters: (route.legs || []).map((leg) => Number(leg.distanceMeters) || 0), includesReturnToStore: true };
+  }
+  // Cadastro de clientes com distância confiável calculada no backend.
+  if (action === 'saveClientWithDistance') {
+    const { userId, user, identity } = await authenticated(request);
+    const clientId = boundedString(request.data?.clientId, 128);
+    if (clientId && (clientId.includes('/') || clientId === '.' || clientId === '..'))
+      throw new HttpsError('invalid-argument', 'Cliente inválido.');
+    if (clientId && identity.role !== 'admin' && user.role !== 'admin')
+      throw new HttpsError('permission-denied', 'Somente administradores podem editar clientes.');
+    const companyName = boundedString(request.data?.companyName, 180);
+    const contactPerson = boundedString(request.data?.contactPerson, 180);
+    const phone = boundedString(request.data?.phone, 40);
+    const address = boundedString(request.data?.address, 450);
+    const clientType = request.data?.clientType;
+    if (!companyName || !contactPerson || !phone || !address || !['pf', 'pj'].includes(clientType))
+      throw new HttpsError('invalid-argument', 'Dados obrigatórios inválidos.');
+    // O cálculo usa Google Routes (DRIVE), não distância em linha reta.
+    const result = await google('https://routes.googleapis.com/directions/v2:computeRoutes', {
+      origin: { address: ORIGIN.address }, destination: { address },
+      travelMode: 'DRIVE', languageCode: 'pt-BR', routingPreference: 'TRAFFIC_UNAWARE',
+    }, 'routes.distanceMeters');
+    const distanceMeters = Number(result.routes?.[0]?.distanceMeters);
+    if (!Number.isFinite(distanceMeters) || distanceMeters < 0 || distanceMeters > 500000)
+      throw new HttpsError('failed-precondition', 'Não foi possível calcular uma distância rodoviária válida. Confirme o endereço.');
+    const values = {
+      company_name: companyName,
+      company_name_normalized: companyName.toUpperCase(),
+      contact_person: contactPerson,
+      phone, address, client_type: clientType,
+      distance_from_store_meters: Math.round(distanceMeters),
+      distance_origin_address: ORIGIN.address,
+      distance_calculated_at: FieldValue.serverTimestamp(),
+      updated_at: FieldValue.serverTimestamp(),
+    };
+    if (clientId) {
+      const ref = db.doc(`departmental_clients/${clientId}`);
+      const existing = await ref.get();
+      if (!existing.exists) throw new HttpsError('not-found', 'Cliente não encontrado.');
+      await ref.update(values);
+      return { clientId, distanceMeters: values.distance_from_store_meters };
+    }
+    const created = await db.collection('departmental_clients').add({
+      ...values, created_at: FieldValue.serverTimestamp(), created_by: userId,
+    });
+    return { clientId: created.id, distanceMeters: values.distance_from_store_meters };
+  }
+  if (action === 'estimateDeliveryDistance') {
+    await authenticated(request);
+    const address = boundedString(request.data?.address, 450);
+    if (address.length < 8) throw new HttpsError('invalid-argument', 'Endereço incompleto.');
+    const result = await google('https://routes.googleapis.com/directions/v2:computeRoutes', {
+      origin: { address: ORIGIN.address }, destination: { address },
+      travelMode: 'DRIVE', languageCode: 'pt-BR', routingPreference: 'TRAFFIC_UNAWARE',
+    }, 'routes.distanceMeters');
+    const meters = Number(result.routes?.[0]?.distanceMeters);
+    if (!Number.isFinite(meters) || meters < 0 || meters > 500000)
+      throw new HttpsError('failed-precondition', 'Distância rodoviária indisponível.');
+    return { distanceMeters: Math.round(meters), originAddress: ORIGIN.address };
+  }
+  if (action === 'estimateRideAndPersist') {
+    const { userId, user, identity } = await authenticated(request);
+    const rideId = boundedString(request.data?.rideId, 150);
+    if (!rideId || rideId.includes('/')) throw new HttpsError('invalid-argument', 'Corrida inválida.');
+    const ref = db.doc(`motoboy_assignments/${rideId}`);
+    const snapshot = await ref.get();
+    if (!snapshot.exists) throw new HttpsError('not-found', 'Corrida não encontrada.');
+    const ride = snapshot.data();
+    if (ride.assigned_to !== userId && ride.assigned_by !== userId) {
+      const permission = await db.doc(`user_feature_permissions/motoboy_management__${userId}`).get();
+      if (!(identity.role === 'admin' || user.role === 'admin' || userId === 'emp-1' || permission.data()?.enabled === true))
+        throw new HttpsError('permission-denied', 'Sem acesso à corrida.');
+    }
+    // Trajeto associado a rota tem distância por trecho calculada na designação.
+    if (ride.route_id && typeof ride.expected_leg_meters === 'number') {
+      return { distanceMeters: ride.expected_leg_meters, includesReturn: false, isRouteLeg: true };
+    }
+    if (typeof ride.expected_distance_meters === 'number') {
+      return { distanceMeters: ride.expected_distance_meters, includesReturn: false, isRouteLeg: false };
+    }
+    const address = boundedString(ride.location, 450);
+    if (!address) throw new HttpsError('failed-precondition', 'Corrida sem endereço.');
+    const result = await google('https://routes.googleapis.com/directions/v2:computeRoutes', {
+      origin: { address: ORIGIN.address }, destination: { address },
+      travelMode: 'DRIVE', languageCode: 'pt-BR', routingPreference: 'TRAFFIC_UNAWARE',
+    }, 'routes.distanceMeters');
+    const meters = Number(result.routes?.[0]?.distanceMeters);
+    if (!Number.isFinite(meters) || meters < 0 || meters > 500000)
+      throw new HttpsError('failed-precondition', 'Distância indisponível.');
+    const rounded = Math.round(meters);
+    // Persistir somente se o endereço não foi alterado durante o cálculo.
+    await db.runTransaction(async (tx) => {
+      const latest = await tx.get(ref);
+      if (!latest.exists || latest.data().location !== ride.location) return;
+      tx.update(ref, { expected_distance_meters: rounded, expected_distance_calculated_at: FieldValue.serverTimestamp() });
+    });
+    return { distanceMeters: rounded, includesReturn: false, isRouteLeg: false };
   }
   const callerId = await authorized(request);
   if (action === 'autocomplete') {
@@ -135,6 +231,17 @@ exports.googleRoutePlanner = onCall(cfg, async (request) => {
     const target = await db.doc(`users/${motoboyId}`).get();
     if (!target.exists || target.data()?.active === false || !(target.data()?.sectors || []).includes('motoboys'))
       throw new HttpsError('invalid-argument', 'Motoboy inválido.');
+    // Cada perna da rota é calculada pelo Google Routes: loja -> paradas -> loja.
+    const estimate = await google('https://routes.googleapis.com/directions/v2:computeRoutes', {
+      origin: { address: ORIGIN.address }, destination: { address: ORIGIN.address },
+      intermediates: stops.map((s) => ({ placeId: s.placeId })),
+      travelMode: 'DRIVE', languageCode: 'pt-BR', routingPreference: 'TRAFFIC_UNAWARE',
+    }, 'routes.distanceMeters,routes.legs.distanceMeters');
+    const routeData = estimate.routes?.[0];
+    const legs = (routeData?.legs || []).map((item) => Number(item.distanceMeters));
+    if (legs.length !== stops.length + 1 || legs.some((meters) => !Number.isFinite(meters) || meters < 0))
+      throw new HttpsError('failed-precondition', 'Distâncias entre paradas indisponíveis.');
+    const totalMeters = legs.reduce((a, b) => a + b, 0);
     const routeId = randomUUID();
     await db.runTransaction(async (tx) => {
       const refs = ids.map((id) => db.doc(`motoboy_assignments/${id}`));
@@ -150,10 +257,14 @@ exports.googleRoutePlanner = onCall(cfg, async (request) => {
         destination_place_id: stops[i].placeId,
         location: boundedString(stops[i].address, 400),
         route_assigned_by: callerId, route_origin_address: ORIGIN.address,
+        expected_leg_meters: Math.round(legs[i]),
+        expected_return_meters: i === stops.length - 1 ? Math.round(legs[legs.length - 1]) : 0,
+        expected_route_total_meters: Math.round(totalMeters),
+        expected_distance_calculated_at: FieldValue.serverTimestamp(),
         route_assigned_at: FieldValue.serverTimestamp(), updated_at: FieldValue.serverTimestamp(),
       }));
     });
-    return { routeId, count: stops.length };
+    return { routeId, count: stops.length, legsMeters: legs.map(Math.round), expectedRouteMeters: Math.round(totalMeters), includesReturnToStore: true };
   }
   throw new HttpsError('invalid-argument', 'Ação desconhecida.');
 });

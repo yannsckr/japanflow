@@ -61,3 +61,6 @@ exports.motoboyDailySummary = require('./motoboyDailySummary').motoboyDailySumma
 exports.deleteReferenceDiagram = require('./referenceDiagramDeletion.cjs').deleteReferenceDiagram;
 exports.createCounterOrderTask = require('./counterOrderTask.cjs').createCounterOrderTask;
 exports.googleRoutePlanner = require('./motoboyRoutes.cjs').googleRoutePlanner;
+exports.motoboyJourney = require('./motoboyJourney.cjs').motoboyJourney;
+
+exports.motoboyRideTransition = require('./motoboyRideTransitions.cjs').motoboyRideTransition;

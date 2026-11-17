@@ -264,6 +264,12 @@ export default function ClientsWorkspace({
                           {client.address}
                         </span>
                       </p>
+                      <p className="!m-0 flex items-center gap-2 font-medium text-foreground">
+                        <MapPin className="h-3.5 w-3.5 shrink-0 text-primary" />
+                        {client.distanceFromStoreMeters == null
+                          ? 'Distância rodoviária ainda não calculada'
+                          : `${(client.distanceFromStoreMeters / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} km da loja (via ruas)`}
+                      </p>
                     </div>
                   </article>
                 );

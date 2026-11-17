@@ -34,6 +34,8 @@ import { useThemeToggle } from '@/hooks/useThemeToggle';
 import ChatPage from '@/pages/ChatPage';
 import VersionInfo from '@/cosmos/releases/VersionInfo';
 import MotoboyMap from './MotoboyMap';
+import MotoboyJourneyManager from './MotoboyJourneyManager';
+import { useJourneyGpsRecording } from './useJourneyGpsRecording';
 import { useMotoboyRides, type Ride } from './useMotoboyRides';
 import { finishRide, reportRideOccurrence, startRide } from './motoboyWorkflow';
 import logoLight from '@/assets/japanflow-logo-light.png';
@@ -214,6 +216,7 @@ export default function MotoboyExperience({ initialScreen = 'home' }: { initialS
     if (localStorage.getItem('japanflow-theme') === null) setTheme('light');
   }, [setTheme]);
   const rides = useMotoboyRides(currentUser?.id);
+  useJourneyGpsRecording(currentUser?.id, rides.all);
   const [screen, setScreen] = useState<Screen>(initialScreen);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [drawer, setDrawer] = useState(false);
@@ -419,6 +422,11 @@ export default function MotoboyExperience({ initialScreen = 'home' }: { initialS
   );
   return (
     <main className={`jm-app jm-theme-${theme}`}>
+      <MotoboyJourneyManager
+        userId={currentUser?.id || ''}
+        showActions={screen === 'home' || screen === 'journey'}
+        hasOpenRides={rides.pending.length > 0 || rides.active.length > 0}
+      />
       {!online && screen !== 'offline' && (
         <button className="jm-offline-alert" onClick={() => go('offline')}>
           <WifiOff size={15} /> Sem conexão — toque para detalhes

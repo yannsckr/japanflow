@@ -126,6 +126,18 @@ service firebase.storage {
       allow delete: if adminUser();
     }
 
+    // Fotos de odômetro: acesso do titular ou do administrador; nunca públicas.
+    match /odometer-proof/{userId}/{fileName} {
+      allow read: if activeUser() && (currentUserId() == userId || adminUser());
+      allow create: if activeUser() && currentUserId() == userId
+        && resource == null
+        && fileName.matches('^[A-Za-z0-9_-]{12,100}[.](jpg|jpeg|png|webp)$')
+        && request.resource.size > 0
+        && request.resource.size <= 8 * 1024 * 1024
+        && request.resource.contentType.matches('image/(jpeg|png|webp)');
+      allow update, delete: if false;
+    }
+
     match /attachments/{folder}/{filePath=**} {
       allow read: if activeUser()
         && folder != 'chat';

@@ -92,10 +92,17 @@ export default function GoogleMotoboyMap({
     }
 
     return onSnapshot(
-      query(collection(db, 'motoboy_telemetry'), where('user_id', '==', focus)),
+      query(collection(db, 'motoboy_journey_telemetry'), where('user_id', '==', focus)),
       (snapshot) => {
+        const today = new Intl.DateTimeFormat('en-CA', {
+          timeZone: 'America/Sao_Paulo',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+        }).format(new Date());
         const points = snapshot.docs
           .map((doc) => doc.data())
+          .filter((p) => p.day === today)
           .map((p) => ({
             lat: Number(p.lat),
             lng: Number(p.lng),

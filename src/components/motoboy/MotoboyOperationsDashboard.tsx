@@ -16,6 +16,8 @@ import {
 import type { MotoboyAssignment } from '@/hooks/useDepartmental';
 import RoutePlanner from '@/components/motoboy/RoutePlanner';
 import GoogleMotoboyMap from '@/components/motoboy/GoogleMotoboyMap';
+import MotoboyMonthlyReports from '@/components/motoboy/MotoboyMonthlyReports';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import MotoboyRideDetailsDialog from '@/components/motoboy/MotoboyRideDetailsDialog';
 import { toast } from 'sonner';
@@ -563,10 +565,12 @@ export default function MotoboyOperationsDashboard({
                                   {clock(a.acceptedAt || a.createdAt)}
                                 </td>
                                 <td
-                                  className="px-2 py-2.5 text-muted-foreground"
-                                  title="Distância por entrega ainda não persistida"
+                                  className="px-2 py-2.5 tabular-nums text-muted-foreground"
+                                  title="Quilometragem prevista por vias"
                                 >
-                                  —
+                                  {a.expectedLegMeters != null || a.expectedDistanceMeters != null
+                                    ? `${((a.expectedLegMeters ?? a.expectedDistanceMeters ?? 0) / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} km`
+                                    : '—'}
                                 </td>
                                 <td className="px-2 py-2.5">
                                   <span

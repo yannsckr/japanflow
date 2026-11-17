@@ -1,7 +1,7 @@
 import { Capacitor, registerPlugin } from '@capacitor/core';
 
 // Plugin nativo; instalar @capacitor-community/background-geolocation antes do cap sync.
-type NativePosition = {
+export type NativePosition = {
   latitude: number;
   longitude: number;
   accuracy: number;
@@ -30,6 +30,16 @@ export function subscribeNativePosition(listener: PositionListener): () => void 
   if (lastPosition) listener(lastPosition);
   return () => {
     listeners.delete(listener);
+  };
+}
+// Fan-out sem duplicar o watcher nativo. Os listeners nao iniciam GPS por conta propria.
+const sampleListeners = new Set<(point: NativePosition) => void>();
+export function subscribeNativeLocationSample(
+  listener: (point: NativePosition) => void
+): () => void {
+  sampleListeners.add(listener);
+  return () => {
+    sampleListeners.delete(listener);
   };
 }
 let watcherId: string | null = null;
@@ -65,6 +75,13 @@ export async function startLocationWatcher(
       if (position) {
         lastPosition = { lat: position.latitude, lng: position.longitude };
         listeners.forEach((listener) => listener(lastPosition!));
+        sampleListeners.forEach((listener) => {
+          try {
+            listener(position);
+          } catch (error) {
+            console.error('[motoboyGPS] listener', error);
+          }
+        });
         onLocation(position);
       }
     }

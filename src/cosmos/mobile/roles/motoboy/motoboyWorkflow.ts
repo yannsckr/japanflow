@@ -1,65 +1,33 @@
 import { doc, runTransaction, serverTimestamp } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import app, { db } from '@/lib/firebase';
+import { getFunctions, httpsCallable } from 'firebase/functions';
 import { uploadImage } from '@/lib/uploadImage';
 
 // Mesma coleção e transições usadas em Departamental -> Motoboys.
 // A transação evita aceitar/finalizar registros já alterados por outro cliente.
-export async function startRide(rideId: string, userId: string) {
-  await runTransaction(db, async (tx) => {
-    const ref = doc(db, 'motoboy_assignments', rideId);
-    const snapshot = await tx.get(ref);
-    if (!snapshot.exists()) throw new Error('A corrida não existe mais.');
-    const data = snapshot.data();
-    if (data.assigned_to !== userId) throw new Error('Esta corrida não está atribuída a você.');
-    if (data.status !== 'pending') throw new Error('A corrida já foi atualizada.');
-    tx.update(ref, {
-      status: 'accepted',
-      accepted_at: serverTimestamp(),
-      updated_at: serverTimestamp(),
-    });
-  });
+// Transições validadas no servidor: jornada OCR aberta e titular da corrida.
+const rideTransition = httpsCallable<
+  { action: 'start' | 'finish'; rideId: string; storagePath?: string; proofUrl?: string },
+  { ok: boolean }
+>(getFunctions(app, 'southamerica-east1'), 'motoboyRideTransition');
+
+export async function startRide(rideId: string, _userId: string) {
+  await rideTransition({ action: 'start', rideId });
 }
 
 export async function finishRide(rideId: string, userId: string, file: File) {
   if (!file.type.startsWith('image/'))
     throw new Error('Envie uma foto válida da notinha assinada.');
   if (file.size > 12 * 1024 * 1024) throw new Error('A foto deve ter no máximo 12 MB.');
-  // Conferir antes do upload para evitar anexos de corridas inválidas.
-  await runTransaction(db, async (tx) => {
-    const snapshot = await tx.get(doc(db, 'motoboy_assignments', rideId));
-    if (
-      !snapshot.exists() ||
-      snapshot.data().assigned_to !== userId ||
-      snapshot.data().status !== 'accepted'
-    )
-      throw new Error('Esta corrida não está em andamento para sua conta.');
-  });
-  const { publicUrl } = await uploadImage(file, {
+  const { publicUrl, storagePath } = await uploadImage(file, {
     pathPrefix: 'receipts',
     sourceTable: 'motoboy_assignments',
     sourceId: rideId,
     sourceField: 'notes',
     uploadedBy: userId,
   });
-  if (!publicUrl) throw new Error('Falha ao salvar o comprovante.');
-  await runTransaction(db, async (tx) => {
-    const ref = doc(db, 'motoboy_assignments', rideId);
-    const snapshot = await tx.get(ref);
-    if (
-      !snapshot.exists() ||
-      snapshot.data().assigned_to !== userId ||
-      snapshot.data().status !== 'accepted'
-    )
-      throw new Error('A corrida foi modificada enquanto a foto era enviada.');
-    const notes = String(snapshot.data().notes || '').trim();
-    tx.update(ref, {
-      status: 'completed',
-      proof_url: publicUrl,
-      notes: `${notes ? notes + '\n' : ''}Cupom: ${publicUrl}`,
-      completed_at: serverTimestamp(),
-      updated_at: serverTimestamp(),
-    });
-  });
+  if (!publicUrl || !storagePath) throw new Error('Falha ao salvar o comprovante.');
+  await rideTransition({ action: 'finish', rideId, storagePath, proofUrl: publicUrl });
 }
 
 export async function reportRideOccurrence(

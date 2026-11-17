@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
+import { getFunctions, httpsCallable } from 'firebase/functions';
+import app from '@/lib/firebase';
 import {
   Clock3,
   ExternalLink,
@@ -16,6 +18,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { MotoboyRouteMap } from '@/components/MotoboyRouteMap';
 import { measureGpsSegment, type GpsSample } from '@/lib/motoboyTelemetry';
 import type { MotoboyAssignment } from '@/hooks/useDepartmental';
+
+const fetchEstimate = httpsCallable<
+  { action: string; rideId: string },
+  { distanceMeters: number; isRouteLeg: boolean }
+>(getFunctions(app, 'southamerica-east1'), 'googleRoutePlanner');
 
 type Point = { lat: number; lng: number; accuracy: number; at: number };
 const dateTime = (value: string | null) =>
@@ -34,6 +41,8 @@ export default function MotoboyRideDetailsDialog({
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [proofPreviewOpen, setProofPreviewOpen] = useState(false);
+  const [estimatedMeters, setEstimatedMeters] = useState<number | null>(null);
+  const [estimateError, setEstimateError] = useState(false);
 
   useEffect(() => {
     if (!ride) {
@@ -73,6 +82,32 @@ export default function MotoboyRideDetailsDialog({
       }
     );
   }, [ride?.id]);
+
+  useEffect(() => {
+    if (!ride?.id) {
+      setEstimatedMeters(null);
+      setEstimateError(false);
+      return;
+    }
+    if (ride.expectedDistanceMeters != null || ride.expectedLegMeters != null) {
+      setEstimatedMeters(ride.expectedLegMeters ?? ride.expectedDistanceMeters);
+      setEstimateError(false);
+      return;
+    }
+    let mounted = true;
+    setEstimatedMeters(null);
+    setEstimateError(false);
+    fetchEstimate({ action: 'estimateRideAndPersist', rideId: ride.id })
+      .then((response) => {
+        if (mounted) setEstimatedMeters(response.data.distanceMeters);
+      })
+      .catch(() => {
+        if (mounted) setEstimateError(true);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [ride?.id, ride?.expectedDistanceMeters, ride?.expectedLegMeters]);
 
   const stats = useMemo(() => {
     let meters = 0;
@@ -146,6 +181,16 @@ export default function MotoboyRideDetailsDialog({
                   Icon: PackageCheck,
                 },
                 {
+                  label: ride?.routeId ? 'Km previstos (trecho)' : 'Km previstos (loja → cliente)',
+                  value:
+                    estimatedMeters == null
+                      ? estimateError
+                        ? 'Não calculado'
+                        : 'Calculando…'
+                      : `${(estimatedMeters / 1000).toFixed(2)} km`,
+                  Icon: Route,
+                },
+                {
                   label: 'Km GPS validado',
                   value:
                     points.length > 1 ? `${(stats.meters / 1000).toFixed(2)} km` : 'Indisponível',
@@ -161,6 +206,15 @@ export default function MotoboyRideDetailsDialog({
                 </div>
               ))}
             </div>
+            {ride?.routeId && ride.expectedRouteTotalMeters != null && (
+              <p className="rounded-lg border border-border px-3 py-2 text-xs text-muted-foreground">
+                Rota completa prevista, incluindo retorno à loja:{' '}
+                {(ride.expectedRouteTotalMeters / 1000).toLocaleString('pt-BR', {
+                  maximumFractionDigits: 2,
+                })}{' '}
+                km.
+              </p>
+            )}
             {loading && <p className="text-sm text-muted-foreground">Carregando telemetria...</p>}
             {error && (
               <p role="alert" className="text-sm text-destructive">
