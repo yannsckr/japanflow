@@ -42,34 +42,34 @@ async function confirmAfterTransportFailure(
 
 export async function startRide(rideId: string, userId: string) {
   return withRideOperationLock(rideId, async () => {
-  try {
-    await rideTransition({ action: 'start', rideId });
-  } catch (error) {
-    if (await confirmAfterTransportFailure(error, 'start', rideId, userId)) return;
-    throw error;
-  }
+    try {
+      await rideTransition({ action: 'start', rideId });
+    } catch (error) {
+      if (await confirmAfterTransportFailure(error, 'start', rideId, userId)) return;
+      throw error;
+    }
   });
 }
 
 export async function finishRide(rideId: string, userId: string, file: File) {
   return withRideOperationLock(rideId, async () => {
-  if (!file.type.startsWith('image/'))
-    throw new Error('Envie uma foto válida da notinha assinada.');
-  if (file.size > 12 * 1024 * 1024) throw new Error('A foto deve ter no máximo 12 MB.');
-  const { publicUrl, storagePath } = await uploadImage(file, {
-    pathPrefix: 'receipts',
-    sourceTable: 'motoboy_assignments',
-    sourceId: rideId,
-    sourceField: 'notes',
-    uploadedBy: userId,
-  });
-  if (!publicUrl || !storagePath) throw new Error('Falha ao salvar o comprovante.');
-  try {
-    await rideTransition({ action: 'finish', rideId, storagePath, proofUrl: publicUrl });
-  } catch (error) {
-    if (await confirmAfterTransportFailure(error, 'finish', rideId, userId, publicUrl)) return;
-    throw error;
-  }
+    if (!file.type.startsWith('image/'))
+      throw new Error('Envie uma foto válida da notinha assinada.');
+    if (file.size > 12 * 1024 * 1024) throw new Error('A foto deve ter no máximo 12 MB.');
+    const { publicUrl, storagePath } = await uploadImage(file, {
+      pathPrefix: 'receipts',
+      sourceTable: 'motoboy_assignments',
+      sourceId: rideId,
+      sourceField: 'notes',
+      uploadedBy: userId,
+    });
+    if (!publicUrl || !storagePath) throw new Error('Falha ao salvar o comprovante.');
+    try {
+      await rideTransition({ action: 'finish', rideId, storagePath, proofUrl: publicUrl });
+    } catch (error) {
+      if (await confirmAfterTransportFailure(error, 'finish', rideId, userId, publicUrl)) return;
+      throw error;
+    }
   });
 }
 

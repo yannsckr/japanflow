@@ -42,6 +42,7 @@ import { useMotoboyRides, type Ride } from './useMotoboyRides';
 import { canOperateRide } from './rideSyncPolicy';
 import { isRideActionScreen, wasSelectedRideRemoved } from './rideSelectionSync';
 import { finishRide, reportRideOccurrence, startRide } from './motoboyWorkflow';
+import { rideOperationErrorMessage } from './rideOperationErrors';
 import logoLight from '@/assets/japanflow-logo-light.png';
 import './motoboy-app.css';
 
@@ -493,7 +494,7 @@ export default function MotoboyExperience({ initialScreen = 'home' }: { initialS
       toast.success(success);
       go(after);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Não foi possível concluir a operação.');
+      toast.error(rideOperationErrorMessage(e));
     } finally {
       setBusy(false);
     }
