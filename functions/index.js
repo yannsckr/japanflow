@@ -62,6 +62,7 @@ exports.deleteReferenceDiagram = require('./referenceDiagramDeletion.cjs').delet
 exports.createCounterOrderTask = require('./counterOrderTask.cjs').createCounterOrderTask;
 exports.googleRoutePlanner = require('./motoboyRoutes.cjs').googleRoutePlanner;
 exports.motoboyJourney = require('./motoboyJourney.cjs').motoboyJourney;
+exports.motoboyNativeSession = require('./motoboyNativeSession.cjs').motoboyNativeSession;
 
 exports.motoboyRideTransition = require('./motoboyRideTransitions.cjs').motoboyRideTransition;
 

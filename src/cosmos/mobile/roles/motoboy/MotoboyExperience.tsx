@@ -377,6 +377,7 @@ export default function MotoboyExperience({ initialScreen = 'home' }: { initialS
         setTracking(true);
         // Estado 'ok' apenas apos a primeira posicao real recebida pelo watcher.
         if (gpsKey) localStorage.setItem(gpsKey, 'true');
+        window.dispatchEvent(new Event('japanflow:gps-consent'));
         toast.success('Rastreamento ativo no dispositivo');
       } else if (navigator.geolocation) {
         navigator.geolocation.getCurrentPosition(
