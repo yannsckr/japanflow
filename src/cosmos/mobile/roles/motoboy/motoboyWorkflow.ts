@@ -1,4 +1,10 @@
-import app from '@/lib/firebase';
+import app, { db } from '@/lib/firebase';
+import { doc, getDocFromServer } from 'firebase/firestore';
+import {
+  couldBeCommittedDespiteError,
+  isRideTransitionConfirmed,
+  type TransitionAction,
+} from './rideTransitionRecovery';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { uploadImage } from '@/lib/uploadImage';
 
@@ -10,8 +16,36 @@ const rideTransition = httpsCallable<
   { ok: boolean }
 >(getFunctions(app, 'southamerica-east1'), 'motoboyRideTransition');
 
-export async function startRide(rideId: string, _userId: string) {
-  await rideTransition({ action: 'start', rideId });
+/** Em falha ambigua, revalida no servidor; nunca usa cache e nunca repete o comando. */
+async function confirmAfterTransportFailure(
+  error: unknown,
+  action: TransitionAction,
+  rideId: string,
+  userId: string,
+  proofUrl?: string
+): Promise<boolean> {
+  if (!couldBeCommittedDespiteError(error)) return false;
+  try {
+    const snapshot = await getDocFromServer(doc(db, 'motoboy_assignments', rideId));
+    return (
+      snapshot.exists() && isRideTransitionConfirmed(action, snapshot.data(), userId, proofUrl)
+    );
+  } catch (lookupError) {
+    console.warn(
+      '[motoboyWorkflow] não foi possível confirmar a transição no servidor',
+      lookupError
+    );
+    return false;
+  }
+}
+
+export async function startRide(rideId: string, userId: string) {
+  try {
+    await rideTransition({ action: 'start', rideId });
+  } catch (error) {
+    if (await confirmAfterTransportFailure(error, 'start', rideId, userId)) return;
+    throw error;
+  }
 }
 
 export async function finishRide(rideId: string, userId: string, file: File) {
@@ -26,7 +60,12 @@ export async function finishRide(rideId: string, userId: string, file: File) {
     uploadedBy: userId,
   });
   if (!publicUrl || !storagePath) throw new Error('Falha ao salvar o comprovante.');
-  await rideTransition({ action: 'finish', rideId, storagePath, proofUrl: publicUrl });
+  try {
+    await rideTransition({ action: 'finish', rideId, storagePath, proofUrl: publicUrl });
+  } catch (error) {
+    if (await confirmAfterTransportFailure(error, 'finish', rideId, userId, publicUrl)) return;
+    throw error;
+  }
 }
 
 const sendOccurrence = httpsCallable<
