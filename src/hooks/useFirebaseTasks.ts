@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   Timestamp,
+  arrayUnion,
   collection,
   deleteDoc,
   doc,
@@ -29,6 +30,7 @@ interface FirestoreTaskData {
   priority?: unknown;
   assignee_id?: unknown;
   assignee_ids?: unknown;
+  claimed_by_ids?: unknown;
   assigneeId?: unknown;
   created_by?: unknown;
   createdBy?: unknown;
@@ -115,6 +117,7 @@ export const mapTask = (id: string, data: FirestoreTaskData): TaskWithArchive =>
     assigneeIds: Array.isArray(data.assignee_ids)
       ? normalizeAssigneeIds(data.assignee_ids)
       : undefined,
+    claimedByIds: normalizeAssigneeIds(data.claimed_by_ids),
     createdBy: String(data.created_by ?? data.createdBy ?? ''),
     deadline: String(data.deadline || ''),
     sector: data.sector ? (String(data.sector) as Sector) : undefined,
@@ -359,10 +362,8 @@ export function useFirebaseTasks(
   }, []);
 
   const claimSectorTask = useCallback(async (taskId: string, userId: string) => {
-    await updateDoc(doc(db, 'tasks', taskId), {
-      ...singleAssigneeUpdate(userId),
-      updated_at: Timestamp.now(),
-    });
+    // Resgate adiciona Julio ao mesmo registro; nao substitui destinatarios nem status.
+    await updateDoc(doc(db, 'tasks', taskId), { claimed_by_ids: arrayUnion(userId) });
   }, []);
 
   return {

@@ -26,6 +26,59 @@ import {
   type CosmosRelease,
 } from '@/cosmos/releases/releaseService';
 
+function AudiencePicker({
+  audience,
+  onAudienceChange,
+  selected,
+  onSelectedChange,
+  users,
+}: {
+  audience: 'all' | 'selected';
+  onAudienceChange: (value: 'all' | 'selected') => void;
+  selected: string[];
+  onSelectedChange: (value: string[]) => void;
+  users: { id: string; name: string; username: string }[];
+}) {
+  return (
+    <div className="space-y-3 rounded-xl border p-3">
+      <label className="block text-sm font-medium" htmlFor="jf-release-audience">
+        Destinatários
+      </label>
+      <select
+        id="jf-release-audience"
+        className="flex h-10 w-full rounded-md border bg-background px-3 text-sm"
+        value={audience}
+        onChange={(event) => onAudienceChange(event.target.value as 'all' | 'selected')}
+      >
+        <option value="all">Todos os usuários</option>
+        <option value="selected">Usuários selecionados</option>
+      </select>
+      {audience === 'selected' && (
+        <div className="max-h-48 space-y-2 overflow-y-auto rounded-lg border p-2">
+          {users.map((user) => (
+            <label key={user.id} className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={selected.includes(user.id)}
+                onChange={(event) =>
+                  onSelectedChange(
+                    event.target.checked
+                      ? [...selected.filter((id) => id !== user.id), user.id]
+                      : selected.filter((id) => id !== user.id)
+                  )
+                }
+              />
+              <span>
+                {user.name} ({user.username})
+              </span>
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 const empty = {
   version: '',
   title: '',
@@ -35,7 +88,7 @@ const empty = {
   mandatory: false,
 };
 export default function CosmosReleasesPage() {
-  const { authenticatedUser } = useApp();
+  const { authenticatedUser, users } = useApp();
   const username = authenticatedUser?.username?.trim().toLowerCase() || '';
   const canPublish = ['ryan', 'japan-ti'].includes(username); // IMPORTANTE: duplicar autorizacao nas regras Firestore.
   const [releases, setReleases] = useState<CosmosRelease[]>([]);
@@ -51,6 +104,11 @@ export default function CosmosReleasesPage() {
   const [editNotes, setEditNotes] = useState('');
   const [editChannel, setEditChannel] = useState<'stable' | 'beta'>('stable');
   const [filter, setFilter] = useState<'all' | 'stable' | 'beta'>('all');
+  const [audience, setAudience] = useState<'all' | 'selected'>('all');
+  const [targetUserIds, setTargetUserIds] = useState<string[]>([]);
+  const [editAudience, setEditAudience] = useState<'all' | 'selected'>('all');
+  const [editTargetUserIds, setEditTargetUserIds] = useState<string[]>([]);
+  const activeUsers = useMemo(() => users.filter((user) => user.active !== false), [users]);
   useEffect(() => {
     if (!canPublish) return;
     return subscribeCosmosReleases(
@@ -92,6 +150,8 @@ export default function CosmosReleasesPage() {
       (!/\.apk$/i.test(apkFile.name) || apkFile.size <= 0 || apkFile.size > 150 * 1024 * 1024)
     )
       return toast.error('Selecione um APK de até 150 MB');
+    if (audience === 'selected' && targetUserIds.length === 0)
+      return toast.error('Selecione ao menos um destinatário');
     if (releases.some((r) => r.version === form.version && r.channel === form.channel))
       return toast.error('Essa versão já existe nesse canal');
     setSaving(true);
@@ -126,6 +186,8 @@ export default function CosmosReleasesPage() {
         notes: form.notes.trim(),
 
         status: 'published',
+        audience,
+        targetUserIds: audience === 'selected' ? targetUserIds : [],
         createdBy: authenticatedUser?.id || username,
         createdAt: serverTimestamp(),
         publishedAt: serverTimestamp(),
@@ -133,6 +195,8 @@ export default function CosmosReleasesPage() {
       toast.success('Release publicado');
       setShowForm(false);
       setForm(empty);
+      setAudience('all');
+      setTargetUserIds([]);
       setApkFile(null);
     } catch (e) {
       toast.error('Não foi possível publicar. Verifique permissões do Firebase.');
@@ -147,6 +211,8 @@ export default function CosmosReleasesPage() {
     setEditTitle(release.title);
     setEditNotes(release.notes);
     setEditChannel(release.channel);
+    setEditAudience(release.audience === 'selected' ? 'selected' : 'all');
+    setEditTargetUserIds(release.targetUserIds || []);
   };
   const saveEdit = async (event: FormEvent) => {
     event.preventDefault();
@@ -160,12 +226,18 @@ export default function CosmosReleasesPage() {
       toast.error('Título ou changelog inválido');
       return;
     }
+    if (editAudience === 'selected' && editTargetUserIds.length === 0) {
+      toast.error('Selecione ao menos um destinatário');
+      return;
+    }
     setSaving(true);
     try {
       await updateDoc(doc(db, 'cosmos_releases', editing.id), {
         title: editTitle.trim(),
         notes: editNotes.trim(),
         channel: editChannel,
+        audience: editAudience,
+        targetUserIds: editAudience === 'selected' ? editTargetUserIds : [],
       });
       toast.success('Release atualizada');
       setEditing(null);
@@ -220,9 +292,6 @@ export default function CosmosReleasesPage() {
         <form onSubmit={publish} className="space-y-4 rounded-2xl border bg-card p-5 shadow-sm">
           <div>
             <h2 className="font-semibold">Publicar versão</h2>
-            <p className="text-xs text-muted-foreground">
-              O aplicativo exibirá automaticamente releases publicadas no canal estável.
-            </p>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="space-y-1 text-sm">
@@ -246,6 +315,13 @@ export default function CosmosReleasesPage() {
               </select>
             </label>
           </div>
+          <AudiencePicker
+            audience={audience}
+            onAudienceChange={setAudience}
+            selected={targetUserIds}
+            onSelectedChange={setTargetUserIds}
+            users={activeUsers}
+          />
           <label className="block space-y-1 text-sm">
             Título
             <Input
@@ -355,6 +431,13 @@ export default function CosmosReleasesPage() {
               <option value="beta">Beta</option>
             </select>
           </label>
+          <AudiencePicker
+            audience={editAudience}
+            onAudienceChange={setEditAudience}
+            selected={editTargetUserIds}
+            onSelectedChange={setEditTargetUserIds}
+            users={activeUsers}
+          />
           <Button type="submit" disabled={saving}>
             {saving ? 'Salvando…' : 'Salvar alterações'}
           </Button>
@@ -404,6 +487,11 @@ export default function CosmosReleasesPage() {
                   <div className="flex flex-wrap gap-2 text-xs">
                     <span className="rounded-full border px-2 py-1">
                       {r.channel === 'stable' ? 'Estável' : 'Beta'}
+                    </span>
+                    <span className="rounded-full border px-2 py-1">
+                      {r.audience === 'selected'
+                        ? `${r.targetUserIds?.length || 0} destinatários`
+                        : 'Todos'}
                     </span>
                     {r.mandatory && (
                       <span className="flex items-center gap-1 rounded-full border px-2 py-1">

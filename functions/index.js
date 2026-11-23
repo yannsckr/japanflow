@@ -64,3 +64,11 @@ exports.googleRoutePlanner = require('./motoboyRoutes.cjs').googleRoutePlanner;
 exports.motoboyJourney = require('./motoboyJourney.cjs').motoboyJourney;
 
 exports.motoboyRideTransition = require('./motoboyRideTransitions.cjs').motoboyRideTransition;
+
+// Notificações Android: novas corridas, mensagens e ocorrências.
+const japanFlowNotifications = require('./cosmosNotifications.js');
+exports.cosmosSendNativeNotification = japanFlowNotifications.cosmosSendNativeNotification;
+exports.cosmosNotifyNewRide = japanFlowNotifications.cosmosNotifyNewRide;
+exports.cosmosNotifyChat = japanFlowNotifications.cosmosNotifyChat;
+exports.cosmosNotifyOccurrence = japanFlowNotifications.cosmosNotifyOccurrence;
+exports.motoboyReportOccurrence = require('./motoboyOccurrences.cjs').motoboyReportOccurrence;

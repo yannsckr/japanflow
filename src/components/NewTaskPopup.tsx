@@ -61,15 +61,19 @@ const NewTaskPopup = () => {
   useEffect(() => {
     if (!currentUser) return;
 
-    const isTaskActive = (message: string) => {
-      // Try to find a matching task by title contained in the message; if found and done, skip
-      const match = tasks.find(
-        (t) =>
-          message.includes(t.title) &&
-          [t.assigneeId, ...(t.assigneeIds || [])].includes(currentUser.id)
+    const isTaskActive = (notification: { taskId?: string; message: string }) => {
+      // Notificacoes novas usam ID imutavel; as antigas so aparecem se
+      // corresponderem a uma atribuicao explicita ao proprio usuario.
+      const matches = tasks.filter((task) =>
+        notification.taskId
+          ? task.id === notification.taskId
+          : Boolean(task.title && notification.message.includes(task.title))
       );
-      if (match && match.status === 'done') return false;
-      return true;
+      return matches.some(
+        (task) =>
+          task.status !== 'done' &&
+          [task.assigneeId, ...(task.assigneeIds || [])].includes(currentUser.id)
+      );
     };
 
     const userTaskNotifs = notifications.filter(
@@ -77,7 +81,7 @@ const NewTaskPopup = () => {
         n.userId === currentUser.id &&
         n.type === 'task_created' &&
         new Date(n.timestamp).getTime() >= installTsRef.current &&
-        isTaskActive(n.message)
+        isTaskActive(n)
     );
 
     // On first load, mark all existing as seen (avoid replaying historic notifs)

@@ -1,10 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowDownToLine, X, Sparkles } from 'lucide-react';
-import { compareVersions, subscribeCosmosReleases, type CosmosRelease } from './releaseService';
+import {
+  compareVersions,
+  isReleaseForUser,
+  subscribeCosmosReleases,
+  type CosmosRelease,
+} from './releaseService';
+import { useApp } from '@/contexts/AppContext';
 
 // Sincronize esta constante com o versionName do build Android antes de publicar.
 const INSTALLED_VERSION = import.meta.env.VITE_COSMOS_APP_VERSION || '0.0.0';
 export default function CosmosUpdatePrompt() {
+  const { currentUser } = useApp();
   const [items, setItems] = useState<CosmosRelease[]>([]);
   const [dismissed, setDismissed] = useState<string | null>(null);
   useEffect(
@@ -17,12 +24,13 @@ export default function CosmosUpdatePrompt() {
       items
         .filter(
           (r) =>
+            isReleaseForUser(r, currentUser?.id) &&
             r.status === 'published' &&
-            r.channel === 'stable' &&
+            (r.channel === 'stable' || r.channel === 'beta') &&
             compareVersions(r.version, INSTALLED_VERSION) > 0
         )
         .sort((a, b) => compareVersions(b.version, a.version))[0],
-    [items]
+    [items, currentUser?.id]
   );
   if (!latest || (!latest.mandatory && dismissed === latest.id)) return null;
   const download =

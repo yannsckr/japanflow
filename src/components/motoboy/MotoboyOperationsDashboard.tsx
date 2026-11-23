@@ -12,6 +12,7 @@ import {
   TimerReset,
   UserPlus,
   UserRound,
+  Trash2,
 } from 'lucide-react';
 import type { MotoboyAssignment } from '@/hooks/useDepartmental';
 import RoutePlanner from '@/components/motoboy/RoutePlanner';
@@ -41,6 +42,7 @@ interface Props {
   onCreateRide: () => void;
   onDesignateRide: (rideId: string, motoboyId: string) => Promise<void>;
   onReassignRide: (rideId: string, motoboyId: string) => Promise<void>;
+  onDeleteRide: (rideId: string) => Promise<void>;
   onOpenOverview: () => void;
 }
 
@@ -52,11 +54,21 @@ const localDay = (date: Date) =>
     day: '2-digit',
   }).format(date);
 
-const sameDay = (value: string | null, day: string) => {
-  if (!value) return false;
-  const d = new Date(value);
-  return Number.isFinite(d.getTime()) && localDay(d) === day;
+// A data operacional da corrida e a data agendada, quando existe; caso contrario, a criacao.
+// Nao use completedAt aqui: concluir uma corrida antiga hoje nao a transforma em corrida de hoje.
+const rideDay = (ride: MotoboyAssignment): string => {
+  const scheduled = ride.scheduledFor;
+  if (scheduled) {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(scheduled)) return scheduled;
+    const parsedScheduled = new Date(scheduled);
+    if (Number.isFinite(parsedScheduled.getTime())) return localDay(parsedScheduled);
+  }
+  const created = new Date(ride.createdAt);
+  return Number.isFinite(created.getTime()) ? localDay(created) : '';
 };
+
+const newestFirst = (a: MotoboyAssignment, b: MotoboyAssignment) =>
+  (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0) || b.id.localeCompare(a.id);
 
 const clock = (iso: string | null) =>
   iso && Number.isFinite(Date.parse(iso))
@@ -94,6 +106,7 @@ export default function MotoboyOperationsDashboard({
   onCreateRide,
   onDesignateRide,
   onReassignRide,
+  onDeleteRide,
   onOpenOverview,
 }: Props) {
   const [selectedId, setSelectedId] = useState(isMotoboyOnly ? currentUserId : 'all');
@@ -105,6 +118,32 @@ export default function MotoboyOperationsDashboard({
   const [designatingId, setDesignatingId] = useState<string | null>(null);
   const [rideTargets, setRideTargets] = useState<Record<string, string>>({});
   const [reassigningId, setReassigningId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const deleteRide = async (ride: MotoboyAssignment) => {
+    if (deletingId) return;
+    const target = ride.clientName || ride.description || ride.id;
+    const warning =
+      ride.status === 'accepted' || ride.status === 'completed'
+        ? 'Esta corrida já foi iniciada ou concluída. A exclusão não poderá ser desfeita e removerá o registro operacional da corrida.'
+        : 'A entrega deixará de aparecer para designação e para o motoboy.';
+    if (
+      !window.confirm(
+        `Excluir a entrega de ${target}?\n\n${warning}\n\nO pedido e as tarefas originais serão preservados.`
+      )
+    )
+      return;
+    setDeletingId(ride.id);
+    try {
+      await onDeleteRide(ride.id);
+      setRideDetails((current) => (current?.id === ride.id ? null : current));
+      toast.success('Entrega excluída.');
+    } catch (error) {
+      console.error('[motoboy] excluir entrega', error);
+      toast.error('Não foi possível excluir a entrega. Verifique as permissões.');
+    } finally {
+      setDeletingId(null);
+    }
+  };
   const selected = isMotoboyOnly ? currentUserId : selectedId;
 
   const people = useMemo(
@@ -117,29 +156,31 @@ export default function MotoboyOperationsDashboard({
 
   const scoped = useMemo(
     () =>
-      assignments.filter((a) => {
-        if (a.status === 'pending_approval') return false;
-        if (isMotoboyOnly && a.assignedTo !== currentUserId) return false;
-        if (selected !== 'all' && a.assignedTo !== selected) return false;
-        return (
-          sameDay(a.createdAt, day) || sameDay(a.completedAt, day) || sameDay(a.scheduledFor, day)
-        );
-      }),
+      assignments
+        .filter((a) => {
+          if (a.status === 'pending_approval') return false;
+          if (isMotoboyOnly && a.assignedTo !== currentUserId) return false;
+          if (selected !== 'all' && a.assignedTo !== selected) return false;
+          return rideDay(a) === day;
+        })
+        .sort(newestFirst),
     [assignments, currentUserId, day, isMotoboyOnly, selected]
   );
 
   const queue = useMemo(
     () =>
       canManage
-        ? assignments.filter(
-            (a) =>
-              (a.status === 'pending_approval' || a.status === 'pending') &&
-              (a.status === 'pending_approval' || !a.assignedTo) &&
-              (sameDay(a.createdAt, day) || sameDay(a.scheduledFor, day)) &&
-              `${a.clientName} ${a.location} ${a.description}`
-                .toLocaleLowerCase('pt-BR')
-                .includes(search.toLocaleLowerCase('pt-BR'))
-          )
+        ? assignments
+            .filter(
+              (a) =>
+                (a.status === 'pending_approval' || a.status === 'pending') &&
+                (a.status === 'pending_approval' || !a.assignedTo) &&
+                rideDay(a) === day &&
+                `${a.clientName} ${a.location} ${a.description}`
+                  .toLocaleLowerCase('pt-BR')
+                  .includes(search.toLocaleLowerCase('pt-BR'))
+            )
+            .sort(newestFirst)
         : [],
     [assignments, canManage, day, search]
   );
@@ -153,7 +194,7 @@ export default function MotoboyOperationsDashboard({
       map.set(ride.assignedTo, list);
     }
     for (const [key, list] of map.entries()) {
-      list.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+      list.sort(newestFirst);
       map.set(key, list);
     }
     return map;
@@ -170,7 +211,7 @@ export default function MotoboyOperationsDashboard({
     });
   }, [people, ridesByMotoboy, selected]);
 
-  const designatedRides = scoped.filter((a) => !!a.assignedTo);
+  const designatedRides = scoped.filter((a) => !!a.assignedTo).sort(newestFirst);
 
   return (
     <section
@@ -203,9 +244,18 @@ export default function MotoboyOperationsDashboard({
               type="date"
               className="h-9 w-[150px] border-0 bg-transparent p-0 text-xs text-foreground"
               value={day}
-              onChange={(e) => setDay(e.target.value)}
+              onChange={(e) => e.target.value && setDay(e.target.value)}
             />
           </div>
+          <Button
+            type="button"
+            size="sm"
+            variant={day === localDay(new Date()) ? 'secondary' : 'outline'}
+            className="h-9 px-3 text-xs"
+            onClick={() => setDay(localDay(new Date()))}
+          >
+            Hoje
+          </Button>
           <Button
             type="button"
             size="sm"
@@ -301,6 +351,19 @@ export default function MotoboyOperationsDashboard({
                       #{a.id.slice(0, 6)}
                     </span>
                   </div>
+                  <div className="flex justify-end">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 gap-1 px-2 text-xs text-destructive hover:text-destructive"
+                      disabled={deletingId !== null}
+                      onClick={() => void deleteRide(a)}
+                      aria-label={`Excluir entrega de ${a.clientName || a.id}`}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" /> Excluir entrega
+                    </Button>
+                  </div>
                   <div className="flex items-center gap-2">
                     <Select
                       value={rideTargets[a.id] || ''}
@@ -360,7 +423,8 @@ export default function MotoboyOperationsDashboard({
               <div className="jf-mb-panel flex min-h-[920px] min-w-0 flex-col p-3">
                 <div className="mb-3 flex items-center gap-2">
                   <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
-                    <Bike className="h-4 w-4 text-primary" /> Corridas designadas
+                    <Bike className="h-4 w-4 text-primary" /> Corridas designadas (
+                    {designatedRides.length})
                   </h3>
                 </div>
                 <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
@@ -372,7 +436,14 @@ export default function MotoboyOperationsDashboard({
                     designatedRides.map((a) => {
                       const rider = people.find((m) => m.id === a.assignedTo);
                       return (
-                        <div key={a.id} className="jf-mb-ride space-y-2 rounded-xl p-3">
+                        <div
+                          key={a.id}
+                          className={`jf-mb-ride space-y-2 rounded-xl p-3 ${
+                            a.id === designatedRides[0]?.id
+                              ? 'border border-primary/30 bg-primary/5'
+                              : ''
+                          }`}
+                        >
                           <div className="flex items-start justify-between gap-2">
                             <div className="min-w-0">
                               <p className="truncate text-xs font-medium text-foreground">
@@ -382,15 +453,29 @@ export default function MotoboyOperationsDashboard({
                                 {rider?.name || 'Motoboy removido/inativo'} · {statusText(a.status)}
                               </p>
                             </div>
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="ghost"
-                              className="h-7 px-2 text-xs"
-                              onClick={() => setRideDetails(a)}
-                            >
-                              Detalhes
-                            </Button>
+                            <div className="flex shrink-0 items-center gap-1">
+                              <Button
+                                type="button"
+                                size="icon"
+                                variant="ghost"
+                                className="h-7 w-7 text-destructive hover:text-destructive"
+                                disabled={deletingId !== null}
+                                onClick={() => void deleteRide(a)}
+                                title="Excluir entrega"
+                                aria-label={`Excluir entrega de ${a.clientName || a.id}`}
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="ghost"
+                                className="h-7 px-2 text-xs"
+                                onClick={() => setRideDetails(a)}
+                              >
+                                Detalhes
+                              </Button>
+                            </div>
                           </div>
                           {a.status === 'pending' && (
                             <div className="flex items-center gap-1.5">

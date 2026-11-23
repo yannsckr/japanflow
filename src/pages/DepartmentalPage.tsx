@@ -91,10 +91,15 @@ const DepartmentalPage = () => {
   const [activeDepartmentTab, setActiveDepartmentTab] = useState<string | null>(null);
   const featPerms = useFeaturePermissions();
   const isAdmin = currentUser?.role === 'admin';
+  const isWilliam =
+    currentUser?.id === 'emp-12' ||
+    currentUser?.username?.trim().toLowerCase().replace(/_+$/, '') === 'william';
   const userSectors = currentUser?.sectors || [];
+  const isExpeditionDispatcher = userSectors.includes('expedicao' as Sector) && !isWilliam;
   const canManageMotoboy =
     isAdmin ||
     currentUser?.id === 'emp-1' ||
+    isExpeditionDispatcher ||
     featPerms.hasFeature(currentUser?.id, 'motoboy_management');
   const canRequestReverse =
     isAdmin ||
@@ -106,10 +111,12 @@ const DepartmentalPage = () => {
     featPerms.hasFeature(currentUser?.id, 'tracking_warranties');
 
   // Determine which tabs user can see
-  const canSeeTracking = isAdmin || userSectors.some((s) => ['expedicao', 'vendas'].includes(s));
+  const canSeeTracking =
+    isAdmin || isWilliam || userSectors.some((s) => ['expedicao', 'vendas'].includes(s));
   const canPostTracking =
     isAdmin || userSectors.includes('expedicao' as Sector) || canManageTrackingWarranty;
-  const canSeeReverse = isAdmin || userSectors.some((s) => ['vendas', 'expedicao'].includes(s));
+  const canSeeReverse =
+    isAdmin || isWilliam || userSectors.some((s) => ['vendas', 'expedicao'].includes(s));
   const canSeeReceipts = isAdmin || userSectors.some((s) => ['motoboys', 'expedicao'].includes(s));
   const canPostReceipts = userSectors.includes('motoboys' as Sector);
   const canSeeQuotes =
@@ -119,11 +126,14 @@ const DepartmentalPage = () => {
   const canSeeLowStock =
     isAdmin || userSectors.some((s) => ['expedicao', 'compras', 'estoque'].includes(s));
   const canSeeSupplies = true; // All employees
-  const canSeeMotoboy = isAdmin || userSectors.some((s) => ['expedicao', 'motoboys'].includes(s));
-  const canSeeWarranties = canAccessWarrantyModule(
-    currentUser,
-    featPerms.hasFeature(currentUser?.id, 'tracking_warranties')
-  );
+  const canSeeMotoboy =
+    isAdmin || isExpeditionDispatcher || userSectors.includes('motoboys' as Sector);
+  const canSeeWarranties =
+    isWilliam ||
+    canAccessWarrantyModule(
+      currentUser,
+      featPerms.hasFeature(currentUser?.id, 'tracking_warranties')
+    );
   const canSeeClients = true;
 
   // Dialog states
@@ -366,8 +376,14 @@ const DepartmentalPage = () => {
     canSeeWarranties && { id: 'warranties', label: 'Garantias', icon: Shield },
     canSeeClients && { id: 'clients', label: 'Clientes', icon: UsersRound },
   ].filter(Boolean) as { id: string; label: string; icon: any }[];
+  const visibleTabs = isWilliam
+    ? availableTabs.filter((tab) => ['tracking', 'reverse', 'warranties'].includes(tab.id))
+    : availableTabs;
+  const selectedTab = visibleTabs.some((tab) => tab.id === activeDepartmentTab)
+    ? activeDepartmentTab!
+    : visibleTabs[0]?.id;
 
-  if (availableTabs.length === 0) {
+  if (visibleTabs.length === 0) {
     return (
       <p className="text-sm text-muted-foreground text-center py-12">
         Você não tem acesso a módulos departamentais. Peça ao administrador para configurar seus
@@ -378,7 +394,7 @@ const DepartmentalPage = () => {
 
   return (
     <div className="space-y-5 md:space-y-6">
-      {(activeDepartmentTab || availableTabs[0].id) !== 'motoboy' && (
+      {selectedTab !== 'motoboy' && (
         <section className="jf-surface overflow-hidden p-4 md:p-5">
           <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
             <div>
@@ -394,21 +410,17 @@ const DepartmentalPage = () => {
             </div>
 
             <Badge variant="outline" className="w-fit rounded-xl px-3 py-1">
-              {availableTabs.length} módulo{availableTabs.length !== 1 ? 's' : ''} disponível
-              {availableTabs.length !== 1 ? 'is' : ''}
+              {visibleTabs.length} módulo{visibleTabs.length !== 1 ? 's' : ''} disponível
+              {visibleTabs.length !== 1 ? 'is' : ''}
             </Badge>
           </div>
         </section>
       )}
 
-      <Tabs
-        value={activeDepartmentTab || availableTabs[0].id}
-        onValueChange={setActiveDepartmentTab}
-        className="min-w-0"
-      >
+      <Tabs value={selectedTab} onValueChange={setActiveDepartmentTab} className="min-w-0">
         <div className="-mx-1 overflow-x-auto px-1 pb-1">
           <TabsList className="h-auto min-w-max justify-start gap-1">
-            {availableTabs.map((tab) => (
+            {visibleTabs.map((tab) => (
               <TabsTrigger key={tab.id} value={tab.id} className="gap-1.5 text-xs">
                 <tab.icon className="h-3.5 w-3.5" />
                 {tab.label}
@@ -992,6 +1004,7 @@ const DepartmentalPage = () => {
               onReassignRide={(id, riderId) =>
                 dept.updateMotoboyAssignment(id, { assignedTo: riderId })
               }
+              onDeleteRide={(id) => dept.deleteMotoboyDelivery(id)}
               isMotoboyOnly={
                 !isAdmin &&
                 userSectors.includes('motoboys' as Sector) &&
@@ -1492,7 +1505,13 @@ const DepartmentalPage = () => {
         {/* Clientes */}
         {canSeeClients && (
           <TabsContent value="clients" className="min-w-0">
-            <ClientsWorkspace dept={dept} canManage={true} />
+            <ClientsWorkspace
+              dept={dept}
+              canManage={
+                isAdmin || userSectors.some((sector) => ['vendas', 'expedicao'].includes(sector))
+              }
+              canDelete={isAdmin}
+            />
           </TabsContent>
         )}
 

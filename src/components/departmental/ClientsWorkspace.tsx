@@ -30,6 +30,7 @@ import type { DepartmentalClient } from '@/hooks/useDepartmental';
 export default function ClientsWorkspace({
   dept,
   canManage,
+  canDelete,
 }: {
   dept: {
     clients: DepartmentalClient[];
@@ -39,6 +40,7 @@ export default function ClientsWorkspace({
     deleteClient: (id: string) => Promise<void>;
   };
   canManage: boolean;
+  canDelete: boolean;
 }) {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<'all' | 'pf' | 'pj'>('all');
@@ -46,7 +48,7 @@ export default function ClientsWorkspace({
   const [editing, setEditing] = useState<string | null>(null);
 
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const clients = dept.clients || [];
+  const clients = useMemo(() => dept.clients ?? [], [dept.clients]);
   const editingClient = clients.find((item) => item.id === editing);
 
   const filtered = useMemo(() => {
@@ -216,32 +218,34 @@ export default function ClientsWorkspace({
                           >
                             <Pencil className="h-3.5 w-3.5" />
                           </Button>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-8 w-8 text-destructive"
-                            disabled={deletingId === client.id}
-                            aria-label={`Excluir ${client.companyName}`}
-                            onClick={async () => {
-                              if (
-                                !window.confirm(
-                                  `Excluir ${client.companyName}? A exclusão não altera tarefas anteriores.`
+                          {canDelete && (
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-8 w-8 text-destructive"
+                              disabled={deletingId === client.id}
+                              aria-label={`Excluir ${client.companyName}`}
+                              onClick={async () => {
+                                if (
+                                  !window.confirm(
+                                    `Excluir ${client.companyName}? A exclusão não altera tarefas anteriores.`
+                                  )
                                 )
-                              )
-                                return;
-                              setDeletingId(client.id);
-                              try {
-                                await dept.deleteClient(client.id);
-                                toast.success('Cliente excluído.');
-                              } catch {
-                                toast.error('Erro ao excluir cliente.');
-                              } finally {
-                                setDeletingId(null);
-                              }
-                            }}
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
+                                  return;
+                                setDeletingId(client.id);
+                                try {
+                                  await dept.deleteClient(client.id);
+                                  toast.success('Cliente excluído.');
+                                } catch {
+                                  toast.error('Erro ao excluir cliente.');
+                                } finally {
+                                  setDeletingId(null);
+                                }
+                              }}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
                         </div>
                       )}
                     </div>

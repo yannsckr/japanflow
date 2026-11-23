@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ArrowDownToLine, Download, RefreshCw, X } from 'lucide-react';
 import { useApp } from '@/contexts/AppContext';
-import { compareVersions, subscribeCosmosReleases, type CosmosRelease } from './releaseService';
+import {
+  compareVersions,
+  isReleaseForUser,
+  subscribeCosmosReleases,
+  type CosmosRelease,
+} from './releaseService';
 import {
   installedVersion,
   isNativeAndroid,
@@ -20,7 +25,6 @@ export default function JapanFlowUpdateCenter() {
   const [ready, setReady] = useState(false);
   const [checking, setChecking] = useState(false);
   const [visible, setVisible] = useState(false);
-  const [beta, setBeta] = useState(() => localStorage.getItem('japanflow.updates.beta') === 'true');
 
   const refresh = useCallback(async () => {
     setChecking(true);
@@ -67,14 +71,15 @@ export default function JapanFlowUpdateCenter() {
       releases
         .filter(
           (r) =>
+            isReleaseForUser(r, currentUser?.id) &&
             r.status === 'published' &&
-            (r.channel === 'stable' || (beta && r.channel === 'beta')) &&
+            (r.channel === 'stable' || r.channel === 'beta') &&
             !!r.downloadUrl &&
             !!version &&
             compareVersions(r.version, version) > 0
         )
         .sort((a, b) => compareVersions(b.version, a.version))[0],
-    [releases, version, beta]
+    [releases, version, currentUser?.id]
   );
   useEffect(() => {
     if (next && dismissed !== next.id) setVisible(true);
@@ -180,20 +185,9 @@ export default function JapanFlowUpdateCenter() {
           <p className="jf-update-notes">
             {checking
               ? 'Consultando versões…'
-              : 'Você já está na versão mais recente do canal selecionado.'}
+              : 'Você já está na versão mais recente disponível (Beta ou Estável).'}
           </p>
         )}
-        <label className="jf-update-beta">
-          <input
-            type="checkbox"
-            checked={beta}
-            onChange={(event) => {
-              setBeta(event.target.checked);
-              localStorage.setItem('japanflow.updates.beta', String(event.target.checked));
-            }}
-          />{' '}
-          Receber versões Beta
-        </label>
         {error && (
           <p className="jf-update-error" role="alert">
             {error}

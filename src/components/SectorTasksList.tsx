@@ -2,6 +2,7 @@ import { HandMetal } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { useApp } from '@/contexts/AppContext';
+import { isJulio } from '@/lib/taskAudience';
 import { SECTOR_LABELS, Sector } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -17,24 +18,30 @@ const PRIORITY_STYLES = {
 };
 
 const SectorTasksList = ({ userId }: SectorTasksListProps) => {
-  const { users, operationalTasks, claimSectorTask } = useApp();
+  const { users, currentUser, operationalTasks, claimSectorTask } = useApp();
   const user = users.find((item) => item.id === userId);
 
-  if (!user || !user.sectors || user.sectors.length === 0) return null;
+  if (!user || !currentUser || currentUser.id !== userId || !isJulio(currentUser)) return null;
 
   const sectorTasks = operationalTasks.filter(
     (task) =>
       task.sector &&
-      user.sectors.includes(task.sector as Sector) &&
+      task.sector === 'expedicao' &&
       !task.assigneeId &&
+      !(task.assigneeIds || []).length &&
+      !(task.claimedByIds || []).includes(user.id) &&
       !(task as typeof task & { archivedAt?: string }).archivedAt
   );
 
   if (sectorTasks.length === 0) return null;
 
-  const handleClaim = (taskId: string) => {
-    claimSectorTask(taskId);
-    toast.success('Tarefa resgatada para o seu quadro!');
+  const handleClaim = async (taskId: string) => {
+    try {
+      await claimSectorTask(taskId);
+      toast.success('Tarefa resgatada');
+    } catch {
+      toast.error('Não foi possível resgatar a tarefa');
+    }
   };
 
   return (
@@ -89,7 +96,7 @@ const SectorTasksList = ({ userId }: SectorTasksListProps) => {
 
             <Button
               size="sm"
-              onClick={() => handleClaim(task.id)}
+              onClick={() => void handleClaim(task.id)}
               className="h-9 shrink-0 rounded-xl"
             >
               Resgatar

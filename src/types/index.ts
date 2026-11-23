@@ -79,6 +79,7 @@ export interface Task {
   priority: Priority;
   assigneeId: string;
   assigneeIds?: string[];
+  claimedByIds?: string[];
   createdBy: string;
   deadline: string;
   createdAt: string;
@@ -134,4 +135,5 @@ export interface Notification {
   read: boolean;
   timestamp: string;
   type: 'task_created' | 'task_updated' | 'priority_changed' | 'new_message';
+  taskId?: string;
 }

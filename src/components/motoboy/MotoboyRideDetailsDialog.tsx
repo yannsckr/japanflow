@@ -44,8 +44,10 @@ export default function MotoboyRideDetailsDialog({
   const [estimatedMeters, setEstimatedMeters] = useState<number | null>(null);
   const [estimateError, setEstimateError] = useState(false);
 
+  const telemetryRideId = ride?.id;
+
   useEffect(() => {
-    if (!ride) {
+    if (!telemetryRideId) {
       setPoints([]);
       setError('');
       return;
@@ -54,7 +56,7 @@ export default function MotoboyRideDetailsDialog({
     setError('');
     setLoading(true);
     return onSnapshot(
-      query(collection(db, 'motoboy_telemetry'), where('ride_id', '==', ride.id)),
+      query(collection(db, 'motoboy_telemetry'), where('ride_id', '==', telemetryRideId)),
       (snapshot) => {
         const received = snapshot.docs
           .map((d) => d.data())
@@ -81,7 +83,7 @@ export default function MotoboyRideDetailsDialog({
         setLoading(false);
       }
     );
-  }, [ride?.id]);
+  }, [telemetryRideId]);
 
   useEffect(() => {
     if (!ride?.id) {

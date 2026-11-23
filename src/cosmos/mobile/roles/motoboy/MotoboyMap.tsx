@@ -38,6 +38,7 @@ type GoogleMaps = {
   Map: new (element: HTMLElement, opts: Record<string, unknown>) => GoogleMap;
   Marker: new (opts: Record<string, unknown>) => GoogleMarker;
   Size: new (width: number, height: number) => unknown;
+  Point: new (x: number, y: number) => unknown;
   Geocoder: new () => GoogleGeocoder;
   DirectionsRenderer: new (options: Record<string, unknown>) => GoogleDirectionsRenderer;
   DirectionsService: new () => GoogleDirectionsService;
@@ -217,7 +218,11 @@ export default function MotoboyMap({ rides = [] }: { rides?: Ride[] }) {
           map: instance.current,
           position: actualOrigin,
           title: 'Japan Imports — origem',
-          icon: { url: storePin, scaledSize: new maps.Size(46, 46) },
+          icon: {
+            url: storePin,
+            scaledSize: new maps.Size(46, 46),
+            anchor: new maps.Point(23, 23),
+          },
         })
       );
     const orderedRides = [...rides].sort((a, b) => (a.routeOrder ?? 9999) - (b.routeOrder ?? 9999));
@@ -248,7 +253,7 @@ export default function MotoboyMap({ rides = [] }: { rides?: Ride[] }) {
         new maps.Marker({ map: instance.current, position, title: 'Minha localização' })
       );
     }
-  }, [rides, position, placeLocations, resolvedOrigin, origin.lat, origin.lng, hasOrigin, loaded]);
+  }, [rides, position, placeLocations, resolvedOrigin, origin, hasOrigin, loaded]);
   // Usar posição nativa do GPS se um watcher estiver ativo no Android.
   useEffect(() => subscribeNativePosition(setPosition), []);
   // O servidor calcula trajetos pela Routes API. A chave de servidor nunca chega ao APK.

@@ -13,6 +13,8 @@ export type CosmosRelease = {
   createdAt?: Timestamp;
   publishedAt?: Timestamp;
   createdBy?: string;
+  audience?: 'all' | 'selected';
+  targetUserIds?: string[];
 };
 export const releasesCollection = () => collection(db, 'cosmos_releases');
 export function subscribeCosmosReleases(
@@ -48,4 +50,12 @@ export function validHttpsUrl(value: string) {
   } catch {
     return false;
   }
+}
+
+/** Releases anteriores continuam disponiveis para todos. */
+export function isReleaseForUser(release: CosmosRelease, userId?: string | null): boolean {
+  if (release.audience !== 'selected') return true;
+  return Boolean(
+    userId && Array.isArray(release.targetUserIds) && release.targetUserIds.includes(userId)
+  );
 }

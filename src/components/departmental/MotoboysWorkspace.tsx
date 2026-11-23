@@ -119,7 +119,14 @@ export default function MotoboysWorkspace({ currentUser, users, dept, canManageM
     [users]
   );
 
-  const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [selectedDate, setSelectedDate] = useState(() =>
+    new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Sao_Paulo',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date())
+  );
   const [selectedMotoboy, setSelectedMotoboy] = useState<string>('');
   const [searchUnassigned, setSearchUnassigned] = useState('');
   const [plannerOpen, setPlannerOpen] = useState(false);
@@ -152,15 +159,32 @@ export default function MotoboysWorkspace({ currentUser, users, dept, canManageM
     return unsub;
   }, []);
 
-  const allAssignments: MotoboyAssignment[] = Array.isArray(dept?.motoboyAssignments)
-    ? dept.motoboyAssignments
-    : [];
+  const allAssignments: MotoboyAssignment[] = useMemo(
+    () => (Array.isArray(dept?.motoboyAssignments) ? dept.motoboyAssignments : []),
+    [dept?.motoboyAssignments]
+  );
 
   const dateFiltered = useMemo(() => {
-    return allAssignments.filter((item) => {
-      const baseDate = (item.scheduledFor || item.createdAt || '').split('T')[0];
-      return !selectedDate || baseDate === selectedDate;
-    });
+    return allAssignments
+      .filter((item) => {
+        const source = item.scheduledFor || item.createdAt || '';
+        const baseDate = /^\d{4}-\d{2}-\d{2}$/.test(source)
+          ? source
+          : source && Number.isFinite(Date.parse(source))
+            ? new Intl.DateTimeFormat('en-CA', {
+                timeZone: 'America/Sao_Paulo',
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+              }).format(new Date(source))
+            : '';
+        return baseDate === selectedDate;
+      })
+      .sort(
+        (a, b) =>
+          (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0) ||
+          b.id.localeCompare(a.id)
+      );
   }, [allAssignments, selectedDate]);
 
   const selectedAssignments = useMemo(
@@ -229,10 +253,27 @@ export default function MotoboysWorkspace({ currentUser, users, dept, canManageM
               <Input
                 type="date"
                 value={selectedDate}
-                onChange={(e) => setSelectedDate(e.target.value)}
+                onChange={(e) => e.target.value && setSelectedDate(e.target.value)}
                 className="pl-9"
+                aria-label="Selecionar dia das corridas"
               />
             </div>
+            <Button
+              variant="outline"
+              type="button"
+              onClick={() =>
+                setSelectedDate(
+                  new Intl.DateTimeFormat('en-CA', {
+                    timeZone: 'America/Sao_Paulo',
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit',
+                  }).format(new Date())
+                )
+              }
+            >
+              Hoje
+            </Button>
             <Select value={selectedMotoboy} onValueChange={setSelectedMotoboy}>
               <SelectTrigger className="min-w-[220px]">
                 <SelectValue placeholder="Selecione o motoboy" />

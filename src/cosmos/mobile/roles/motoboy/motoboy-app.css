@@ -58,7 +58,8 @@
   height: calc(58px + env(safe-area-inset-top));
   padding: env(safe-area-inset-top) 15px 0;
   display: grid;
-  grid-template-columns: 40px 1fr 40px;
+  grid-template-columns: 40px minmax(0, 1fr) 40px 40px;
+  column-gap: 4px;
   align-items: center;
   background: #fff;
   flex: none;
@@ -1427,4 +1428,115 @@
 }
 .jf-moto-locate {
   box-shadow: 0 6px 24px #10251d19;
+}
+
+/* JapanFlow: microinterações discretas e alinhamento responsivo */
+.jm-home-header > .jm-icon {
+  display: inline-grid;
+  align-self: center;
+  justify-self: center;
+}
+.jm-home-header > .jm-brand-button {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+.jm-app .jm-icon,
+.jm-app .jm-brand-button {
+  transition:
+    color 180ms ease,
+    background-color 180ms ease,
+    transform 180ms ease;
+}
+.jm-app .jm-icon:active,
+.jm-app .jm-brand-button:active {
+  transform: scale(0.96);
+}
+.jm-app .jm-tile,
+.jm-app .jm-panel,
+.jm-app .jm-ride-card {
+  transition:
+    box-shadow 200ms ease,
+    border-color 200ms ease,
+    transform 200ms ease;
+}
+@media (max-width: 360px) {
+  .jm-home-header {
+    padding-left: 8px;
+    padding-right: 8px;
+    column-gap: 2px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .jm-app .jm-icon,
+  .jm-app .jm-brand-button,
+  .jm-app .jm-tile,
+  .jm-app .jm-panel,
+  .jm-app .jm-ride-card {
+    transition: none !important;
+  }
+}
+
+/* JapanFlow V36: jornada discreta, sem faixa de rolagem lateral. */
+.jf-journey-overlay {
+  width: 100%;
+  max-width: 100%;
+  height: 100dvh;
+  overflow: hidden;
+  box-sizing: border-box;
+  overscroll-behavior: none;
+}
+.jf-journey-modal {
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  box-sizing: border-box;
+  animation: jf-journey-enter 180ms ease-out both;
+}
+.jf-journey-modal::-webkit-scrollbar {
+  display: none;
+}
+@keyframes jf-journey-enter {
+  from {
+    opacity: 0;
+    transform: translateY(5px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .jf-journey-modal {
+    animation: none;
+  }
+}
+
+/* Ajuste de acabamento visual: pequenas hierarquias, sem alterar o layout. */
+.jm-app:not(.jm-theme-dark):not(.jm-theme-mono-dark) .jm-tile {
+  border-color: #e8e8ec;
+  border-radius: 16px;
+  box-shadow: 0 3px 12px rgb(23 25 35 / 5%);
+}
+.jm-app:not(.jm-theme-dark):not(.jm-theme-mono-dark) .jm-panel,
+.jm-app:not(.jm-theme-dark):not(.jm-theme-mono-dark) .jm-ride-card {
+  border-color: #e6e7eb;
+  border-radius: 16px;
+  box-shadow: 0 4px 16px rgb(24 27 38 / 5%);
+}
+.jm-app .jm-button {
+  border-radius: 12px;
+}
+@media (hover: hover) and (pointer: fine) {
+  .jm-app .jm-tile:hover,
+  .jm-app .jm-ride-card:hover {
+    box-shadow: 0 7px 20px rgb(20 24 32 / 9%);
+  }
+}
+/* JAPANFLOW-V38-HEADER-PRIMEIRO: o cabecalho precede as acoes da jornada em qualquer tela. */
+.jm-app > .jm-top,
+.jm-app > .jm-home-header {
+  order: -1;
 }

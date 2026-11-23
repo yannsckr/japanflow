@@ -11,6 +11,7 @@ import {
 import { db } from '@/lib/firebase';
 import { cleanJourneyGpsPoint } from '@/lib/motoboyJourneyGps';
 import { measureGpsSegment, type GpsSample } from '@/lib/motoboyTelemetry';
+import { appendGpsPoint, readGpsQueue, storeGpsQueue } from '@/lib/motoboyGpsQueue';
 import { subscribeNativeLocationSample } from './nativeLocation';
 import type { Ride } from './useMotoboyRides';
 
@@ -27,7 +28,7 @@ export function useJourneyGpsRecording(userId: string | undefined, rides: Ride[]
   const enabled = useRef(false);
   const previous = useRef<GpsSample | null>(null);
   const lastAt = useRef(0);
-  const queue = useRef(Promise.resolve());
+  const flushRef = useRef<() => void>(() => undefined);
 
   useEffect(() => {
     if (!userId) {
@@ -52,8 +53,10 @@ export function useJourneyGpsRecording(userId: string | undefined, rides: Ride[]
         if (!enabled.current) previous.current = null;
         // Encerrou a jornada: nao conservar ultima posicao como se fosse rastreamento ativo.
         if (d?.ended_at) {
+          storeGpsQueue(userId, []);
           void deleteDoc(doc(db, 'motoboy_live_sessions', userId)).catch(() => undefined);
         }
+        if (enabled.current) flushRef.current();
       },
       () => {
         enabled.current = false;
@@ -70,67 +73,125 @@ export function useJourneyGpsRecording(userId: string | undefined, rides: Ride[]
     if (!userId) return;
     previous.current = null;
     lastAt.current = 0;
-    return subscribeNativeLocationSample((position) => {
-      if (!enabled.current || !localStorage.getItem(`japanflow:location-opt-in:${userId}`)) return;
+    let cancelled = false;
+    let flushing = false;
+    const consent = () => localStorage.getItem(`japanflow:location-opt-in:${userId}`) === 'true';
+    const flush = async () => {
+      if (cancelled || flushing || !enabled.current || !consent() || !navigator.onLine) return;
+      flushing = true;
+      try {
+        while (!cancelled && enabled.current && consent() && navigator.onLine) {
+          const point = readGpsQueue(userId)[0];
+          if (!point) break;
+          // A jornada ativa deve corresponder ao dia da amostra.
+          const activeDay = new Intl.DateTimeFormat('en-CA', {
+            timeZone: 'America/Sao_Paulo',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+          }).format(new Date());
+          if (point.day !== activeDay) {
+            storeGpsQueue(userId, readGpsQueue(userId).slice(1));
+            continue;
+          }
+          try {
+            await addDoc(collection(db, 'motoboy_journey_telemetry'), {
+              user_id: userId,
+              day: point.day,
+              ride_id: point.rideId,
+              lat: point.lat,
+              lng: point.lng,
+              accuracy: point.accuracy,
+              client_at: point.timestamp,
+              recorded_at: serverTimestamp(),
+            });
+            // Retira somente depois que a gravação do histórico foi confirmada.
+            // A posição ao vivo é escrita pelo callback GPS, nunca pelo replay.
+            storeGpsQueue(userId, readGpsQueue(userId).slice(1));
+            if (point.rideId && !cancelled) {
+              await addDoc(collection(db, 'motoboy_telemetry'), {
+                user_id: userId,
+                ride_id: point.rideId,
+                day: point.day,
+                lat: point.lat,
+                lng: point.lng,
+                accuracy: point.accuracy,
+                client_at: point.timestamp,
+                meters: 0,
+                recorded_at: serverTimestamp(),
+              }).catch((error) => {
+                console.warn('[journeyGPS] falha na telemetria da corrida', error);
+              });
+            }
+          } catch (error) {
+            if ((error as { code?: string })?.code === 'permission-denied') {
+              // Regras do backend rejeitaram esta amostra; não bloquear toda a fila.
+              storeGpsQueue(userId, readGpsQueue(userId).slice(1));
+              console.warn('[journeyGPS] amostra rejeitada pelo Firestore');
+              continue;
+            }
+            console.warn('[journeyGPS] pendência preservada para reconexão', error);
+            break;
+          }
+        }
+      } finally {
+        flushing = false;
+      }
+    };
+    flushRef.current = () => {
+      void flush();
+    };
+    const onOnline = () => {
+      void flush();
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') void flush();
+    };
+    window.addEventListener('online', onOnline);
+    document.addEventListener('visibilitychange', onVisibility);
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void flush();
+    }, 30_000);
+    const unsubscribe = subscribeNativeLocationSample((position) => {
+      if (cancelled || !enabled.current || !consent()) return;
       const point = cleanJourneyGpsPoint(position);
       if (!point || point.timestamp - lastAt.current < 15000) return;
       const prev = previous.current;
       const segment = prev ? measureGpsSegment(prev, point) : null;
       previous.current = point;
       lastAt.current = point.timestamp;
-      if (
-        segment &&
-        !segment.accepted &&
-        ('reason' in segment ? segment.reason : null) === 'stationary'
-      )
-        return;
-      if (segment && !segment.accepted && ('reason' in segment ? segment.reason : null) !== 'time')
-        return;
+      const reason = segment && !segment.accepted ? segment.reason : null;
+      // Mantém a regra vigente: ruído ou saltos não entram no percurso.
+      if (reason && reason !== 'time' && reason !== 'stationary') return;
+      const shouldRecordHistory = reason !== 'stationary';
       const rideId = ridesRef.current.length === 1 ? ridesRef.current[0] : null;
-      queue.current = queue.current
-        .catch(() => undefined)
-        .then(async () => {
-          await addDoc(collection(db, 'motoboy_journey_telemetry'), {
-            user_id: userId,
-            day: point.day,
-            ride_id: rideId,
-            lat: point.lat,
-            lng: point.lng,
-            accuracy: point.accuracy,
-            client_at: point.timestamp,
-            recorded_at: serverTimestamp(),
-          });
-          await setDoc(
-            doc(db, 'motoboy_live_sessions', userId),
-            {
-              user_id: userId,
-              phase: rideId ? 'delivering' : 'returning',
-              lat: point.lat,
-              lng: point.lng,
-              accuracy: point.accuracy,
-              updated_at: serverTimestamp(),
-            },
-            { merge: true }
-          );
-          // Por corrida: somente quando exatamente uma esta em andamento.
-          // O percurso completo e armazenado separadamente para nao duplicar kilometros.
-          if (rideId) {
-            await addDoc(collection(db, 'motoboy_telemetry'), {
-              user_id: userId,
-              ride_id: rideId,
-              day: point.day,
-              lat: point.lat,
-              lng: point.lng,
-              accuracy: point.accuracy,
-              client_at: point.timestamp,
-              meters: 0,
-              recorded_at: serverTimestamp(),
-            });
-          }
-        })
-        .catch((error) => {
-          console.error('[journeyGPS] falha ao gravar amostra', error);
-        });
+      // O mapa ao vivo não depende da fila de telemetria histórica.
+      void setDoc(
+        doc(db, 'motoboy_live_sessions', userId),
+        {
+          user_id: userId,
+          phase: rideId ? 'delivering' : 'returning',
+          lat: point.lat,
+          lng: point.lng,
+          accuracy: point.accuracy,
+          updated_at: serverTimestamp(),
+        },
+        { merge: true }
+      ).catch((error) => {
+        console.error('[journeyGPS] falha na posicao ao vivo', error);
+      });
+      if (!shouldRecordHistory) return;
+      appendGpsPoint(userId, { ...point, rideId });
+      void flush();
     });
+    void flush();
+    return () => {
+      cancelled = true;
+      flushRef.current = () => undefined;
+      unsubscribe();
+      window.removeEventListener('online', onOnline);
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.clearInterval(interval);
+    };
   }, [userId]);
 }

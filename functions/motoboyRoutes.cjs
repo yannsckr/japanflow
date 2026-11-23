@@ -90,8 +90,11 @@ exports.googleRoutePlanner = onCall(cfg, async (request) => {
     const clientId = boundedString(request.data?.clientId, 128);
     if (clientId && (clientId.includes('/') || clientId === '.' || clientId === '..'))
       throw new HttpsError('invalid-argument', 'Cliente inválido.');
-    if (clientId && identity.role !== 'admin' && user.role !== 'admin')
-      throw new HttpsError('permission-denied', 'Somente administradores podem editar clientes.');
+    const clientManager = identity.role === 'admin' || user.role === 'admin' ||
+      (Array.isArray(user.sectors) && user.sectors.some((sector) =>
+        sector === 'vendas' || sector === 'expedicao'));
+    if (!clientManager)
+      throw new HttpsError('permission-denied', 'Sem permissão para cadastrar ou editar clientes.');
     const companyName = boundedString(request.data?.companyName, 180);
     const contactPerson = boundedString(request.data?.contactPerson, 180);
     const phone = boundedString(request.data?.phone, 40);
@@ -180,7 +183,28 @@ exports.googleRoutePlanner = onCall(cfg, async (request) => {
     });
     return { distanceMeters: rounded, includesReturn: false, isRouteLeg: false };
   }
-  const callerId = await authorized(request);
+  let callerId;
+  // Consulta de CEP/endereco: autorizados a criar pedidos, sem liberar gestao de rotas.
+  if (action === 'autocomplete' || action === 'details') {
+    const { userId, user, identity } = await authenticated(request);
+    const username = String(user.username || '').trim().toLowerCase().replace(/_+$/, '');
+    const canCreateForAll =
+      identity.role === 'admin' || user.role === 'admin' ||
+      (Array.isArray(user.sectors) && user.sectors.includes('vendas')) ||
+      ['ryan', 'julio', 'joe', 'wagner', 'ana', 'jean', 'carol'].includes(username);
+    if (!canCreateForAll) {
+      const grants = await db.collection('task_permissions')
+        .where('granterId', '==', userId).limit(250).get();
+      const hasOrderPermission = grants.docs.some((grant) =>
+        grant.data().targetType === 'sector' && grant.data().targetValue === 'expedicao');
+      if (!hasOrderPermission) {
+        throw new HttpsError('permission-denied', 'Sem permissão para consultar endereços de pedidos.');
+      }
+    }
+    callerId = userId;
+  } else {
+    callerId = await authorized(request);
+  }
   if (action === 'autocomplete') {
     const input = boundedString(request.data?.input, 120);
     if (input.length < 3) return { suggestions: [] };

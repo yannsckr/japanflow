@@ -1,12 +1,10 @@
 'use strict';
 
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
-const { defineSecret } = require('firebase-functions/params');
 const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 const { getStorage } = require('firebase-admin/storage');
 
 const db = getFirestore();
-const visionKey = defineSecret('GOOGLE_VISION_SERVER_KEY');
 const REGION = 'southamerica-east1';
 const REGION_TIMEZONE = 'America/Sao_Paulo';
 
@@ -36,45 +34,24 @@ async function identity(request) {
   return userId;
 }
 
-// OCR de painel veicular com verificação conservadora: candidato único e coincidência numérica.
-// Leitura incerta nunca é marcada como aprovada por IA.
-async function verifyOdometer(userId, storagePath, entered) {
-  if (!validPhotoPath(userId, storagePath)) throw new HttpsError('invalid-argument', 'Foto inválida para este usuário.');
+// Fotografia e leitura manual obrigatorias. Sem OCR ou comparacao automatica.
+async function recordOdometerPhoto(userId, storagePath) {
+  if (!validPhotoPath(userId, storagePath))
+    throw new HttpsError('invalid-argument', 'Foto inválida para este usuário.');
   const file = getStorage().bucket().file(storagePath);
   const [metadata] = await file.getMetadata().catch(() => {
     throw new HttpsError('failed-precondition', 'Foto não encontrada no armazenamento.');
   });
-  if (!String(metadata.contentType || '').startsWith('image/') || Number(metadata.size) > 8 * 1024 * 1024)
+  const mime = String(metadata.contentType || '');
+  const bytes = Number(metadata.size);
+  if (!['image/jpeg', 'image/png', 'image/webp'].includes(mime) ||
+      !Number.isFinite(bytes) || bytes <= 0 || bytes > 8 * 1024 * 1024)
     throw new HttpsError('invalid-argument', 'Arquivo de imagem inválido.');
-  const [bytes] = await file.download();
-  let response;
-  try {
-    response = await fetch(`https://vision.googleapis.com/v1/images:annotate?key=${encodeURIComponent(visionKey.value())}`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ requests: [{ image: { content: bytes.toString('base64') }, features: [{ type: 'TEXT_DETECTION', maxResults: 1 }] }] }),
-      signal: AbortSignal.timeout(14000),
-    });
-  } catch {
-    throw new HttpsError('unavailable', 'Validação da fotografia indisponível. Tente novamente.');
-  }
-  if (!response.ok) {
-    console.error('[motoboyJourney] Vision API status', response.status);
-    throw new HttpsError('unavailable', 'A validação da foto está indisponível.');
-  }
-  const result = await response.json();
-  const fullText = String(result.responses?.[0]?.fullTextAnnotation?.text || result.responses?.[0]?.textAnnotations?.[0]?.description || '');
-  // Evitar converter valores separados por pontuação de painel (hora, velocidade, trip).
-  const candidates = [...fullText.matchAll(/(?<!\d)(\d{4,7})(?:[.,](\d))?(?!\d)/g)]
-    .map((m) => Number(m[1]) + (m[2] ? Number(m[2]) / 10 : 0));
-  const matches = [...new Set(candidates.filter((n) => Math.abs(n - entered) <= 0.1))];
-  if (matches.length !== 1) {
-    throw new HttpsError('failed-precondition', 'Não foi possível confirmar o odômetro na foto. Tire outra foto legível e informe o valor exato.');
-  }
-  return { reading: matches[0], verified: true };
+  return true;
 }
 
 exports.motoboyJourney = onCall({
-  region: REGION, secrets: [visionKey], maxInstances: 4, timeoutSeconds: 60,
+  region: REGION, maxInstances: 4, timeoutSeconds: 60,
 }, async (request) => {
   const userId = await identity(request);
   const action = request.data?.action;
@@ -92,14 +69,14 @@ exports.motoboyJourney = onCall({
     if (jornada?.started_at) throw new HttpsError('already-exists', 'Jornada já iniciada hoje.');
     const odometer = asReading(request.data?.odometer);
     const photoPath = request.data?.photoPath;
-    const validated = await verifyOdometer(userId, photoPath, odometer);
+    await recordOdometerPhoto(userId, photoPath);
     await db.runTransaction(async (tx) => {
       const live = await tx.get(docRef);
       if (live.exists && live.data().started_at) throw new HttpsError('already-exists', 'Jornada já iniciada.');
       tx.set(docRef, {
         user_id: userId, day: date, started_at: FieldValue.serverTimestamp(),
         start_odometer: odometer, start_photo_path: photoPath,
-        start_ocr_reading: validated.reading, start_ai_verified: true,
+        start_photo_recorded: true,
         end_odometer: null, end_photo_path: null, ended_at: null,
         lunch_started_at: null, lunch_ended_at: null,
         created_at: FieldValue.serverTimestamp(), updated_at: FieldValue.serverTimestamp(),
@@ -138,7 +115,7 @@ exports.motoboyJourney = onCall({
     if (odometer < jornada.start_odometer) throw new HttpsError('invalid-argument', 'Odômetro final inferior ao inicial.');
     const photoPath = request.data?.photoPath;
     if (photoPath === jornada.start_photo_path) throw new HttpsError('invalid-argument', 'Envie uma nova foto de encerramento.');
-    const validated = await verifyOdometer(userId, photoPath, odometer);
+    await recordOdometerPhoto(userId, photoPath);
     const result = await db.runTransaction(async (tx) => {
       const live = await tx.get(docRef);
       if (!live.exists || live.data().ended_at) throw new HttpsError('failed-precondition', 'Jornada já encerrada.');
@@ -146,8 +123,8 @@ exports.motoboyJourney = onCall({
       const totalKm = Math.round((odometer - live.data().start_odometer) * 10) / 10;
       tx.update(docRef, {
         ended_at: FieldValue.serverTimestamp(), end_odometer: odometer,
-        end_photo_path: photoPath, end_ocr_reading: validated.reading,
-        end_ai_verified: true, odometer_km: totalKm, updated_at: FieldValue.serverTimestamp(),
+        end_photo_path: photoPath, end_photo_recorded: true,
+        odometer_km: totalKm, updated_at: FieldValue.serverTimestamp(),
       });
       return totalKm;
     });

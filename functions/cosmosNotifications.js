@@ -1,6 +1,6 @@
 'use strict';
 // Cloud Functions v2 — gatilho por notificação direcionada persistida pelo backend.
-const { onDocumentCreated } = require('firebase-functions/v2/firestore');
+const { onDocumentCreated, onDocumentWritten } = require('firebase-functions/v2/firestore');
 const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 const { getMessaging } = require('firebase-admin/messaging');
 
@@ -71,25 +71,33 @@ exports.cosmosNotifyOccurrence = onDocumentCreated(
   }
 );
 
-// Uma atribuição nova gera notificação ao motoboy, mesmo com app fechado.
-exports.cosmosNotifyNewRide = onDocumentCreated(
+// Notifica quando a corrida é criada com responsável ou quando a atribuição muda.
+// Não notifica atualizações de status/quilometragem nem repete a notificação em reentregas do evento.
+exports.cosmosNotifyNewRide = onDocumentWritten(
   { document: 'motoboy_assignments/{rideId}', region: 'southamerica-east1', maxInstances: 5 },
   async event => {
-    const ride = event.data?.data();
-    const userId = ride?.assigned_to;
+    const before = event.data?.before?.data();
+    const after = event.data?.after?.data();
+    if (!after) return; // Exclusão não gera aviso.
+    const userId = after.assigned_to;
     if (typeof userId !== 'string' || !userId || userId.length > 180) return;
+    if (before?.assigned_to === userId) return;
+    const safeEventId = String(event.id || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 100);
+    if (!safeEventId) throw new Error('Identificador de evento ausente.');
     const db = getFirestore();
-    await db.collection('system_notifications').doc(`cosmos_ride_${event.params.rideId}`).set({
-      recipient_user_id: userId,
-      title: 'Nova corrida',
-      source: 'cosmos',
-      severity: 'info',
-      message: 'Uma nova corrida foi atribuída a você.',
-      read: false,
-      created_at: FieldValue.serverTimestamp(),
-      type: 'cosmos_ride',
-      ride_id: event.params.rideId,
-    });
+    await db.collection('system_notifications')
+      .doc(`cosmos_ride_${event.params.rideId}_${safeEventId}`)
+      .set({
+        recipient_user_id: userId,
+        title: 'Nova corrida',
+        source: 'cosmos',
+        severity: 'info',
+        message: 'Uma nova corrida foi atribuída a você.',
+        read: false,
+        created_at: FieldValue.serverTimestamp(),
+        type: 'cosmos_ride',
+        ride_id: event.params.rideId,
+      });
   }
 );
 

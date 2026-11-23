@@ -52,11 +52,19 @@ const CorridasPage = () => {
   const isAdmin = currentUser?.role === 'admin';
   const userSectors = currentUser?.sectors || [];
   const isPatricia = currentUser?.id === 'emp-1';
+  const isWilliam =
+    currentUser?.id === 'emp-12' ||
+    currentUser?.username?.trim().toLowerCase().replace(/_+$/, '') === 'william';
+  const isExpeditionDispatcher = userSectors.includes('expedicao' as Sector) && !isWilliam;
   const isFinanceiro = userSectors.includes('financeiro' as Sector);
   const isMotoboy =
     userSectors.includes('motoboys' as Sector) && !isAdmin && !isPatricia && !isFinanceiro;
   const canAccess =
-    isAdmin || userSectors.includes('motoboys' as Sector) || isPatricia || isFinanceiro;
+    isAdmin ||
+    isExpeditionDispatcher ||
+    userSectors.includes('motoboys' as Sector) ||
+    isPatricia ||
+    isFinanceiro;
   const motoboys = users.filter((u) => u.sectors?.includes('motoboys' as Sector));
   const getName = (id: string) => users.find((u) => u.id === id)?.name || id;
 

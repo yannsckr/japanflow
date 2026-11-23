@@ -764,6 +764,11 @@ export const useDepartmental = () => {
     []
   );
 
+  // Exclui apenas a corrida. Nunca apaga o pedido de origem nem tarefas do Kanban.
+  const deleteMotoboyDelivery = useCallback(async (id: string) => {
+    await deleteDoc(doc(db, 'motoboy_assignments', id));
+  }, []);
+
   const deleteMotoboyAssignment = useCallback(
     async (id: string) => {
       const assignment = motoboyAssignments.find((a) => a.id === id);
@@ -996,6 +1001,7 @@ export const useDepartmental = () => {
     assignMotoboy,
     updateMotoboyStatus,
     deleteMotoboyAssignment,
+    deleteMotoboyDelivery,
     updateMotoboyAssignment,
     unassignMotoboy,
     designateMotoboyRide,

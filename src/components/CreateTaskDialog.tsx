@@ -41,11 +41,14 @@ import { getFunctions, httpsCallable } from 'firebase/functions';
 import {
   addDoc,
   collection,
+  doc,
+  setDoc,
   onSnapshot,
   orderBy,
   query,
   Timestamp,
   serverTimestamp,
+  writeBatch,
 } from 'firebase/firestore';
 import { uploadImage } from '@/lib/uploadImage';
 import { toast } from 'sonner';
@@ -188,17 +191,28 @@ const CreateTaskDialog = ({ preselectedAssignee, mode = 'task' }: CreateTaskDial
   };
 
   const registerClient = async (form: ClientForm) => {
-    const ref = await addDoc(collection(db, 'departmental_clients'), {
-      company_name: form.companyName.trim(),
-      company_name_normalized: form.companyName.trim().toUpperCase(),
-      client_type: form.clientType,
-      contact_person: form.contactPerson.trim(),
+    // Cadastro validado e distancia calculada pelo backend (sem escrita direta).
+    const saveClient = httpsCallable<
+      {
+        action: string;
+        companyName: string;
+        clientType: string;
+        contactPerson: string;
+        phone: string;
+        address: string;
+      },
+      { clientId: string; distanceMeters: number }
+    >(getFunctions(app, 'southamerica-east1'), 'googleRoutePlanner');
+    const result = await saveClient({
+      action: 'saveClientWithDistance',
+      companyName: form.companyName.trim(),
+      clientType: form.clientType,
+      contactPerson: form.contactPerson.trim(),
       phone: form.phone.trim(),
       address: form.address.trim(),
-      created_at: serverTimestamp(),
-      updated_at: serverTimestamp(),
     });
-    setClientId(ref.id);
+    if (!result.data.clientId) throw new Error('Cliente nao retornou identificador.');
+    setClientId(result.data.clientId);
     setClientName(form.companyName.trim());
     setClientAddress(form.address.trim());
     setClientAddressPlaceId(null);
@@ -245,7 +259,17 @@ const CreateTaskDialog = ({ preselectedAssignee, mode = 'task' }: CreateTaskDial
     (currentUser?.active === true && carolRecipients.length > 0);
   const hasSectorPerms = sectorAssignEnabled && (canCreateForAll || allowedSectors.length > 0);
   const hasAnyPerms = hasEmployeePerms || hasSectorPerms;
-  const mayCreateOrder = hasSectorPerms && assignableSectors.includes('expedicao' as Sector);
+  const isWilliam =
+    currentUser?.id === 'emp-12' ||
+    currentUser?.username?.trim().toLowerCase().replace(/_+$/, '') === 'william';
+  // V45.4: permissao de pedidos independente das permissoes de delegar tarefas.
+  // Somente colaboradores ativos de Vendas ou usuarios com permissao previa.
+  const isActiveSalesUser =
+    currentUser?.active !== false &&
+    currentUser?.sectors?.some((value) => String(value).trim().toLowerCase() === 'vendas') === true;
+  const mayCreateOrder =
+    !isWilliam &&
+    (isActiveSalesUser || (hasSectorPerms && assignableSectors.includes('expedicao' as Sector)));
 
   const effectiveAssignMode = isOrderDialog
     ? 'sector'
@@ -539,40 +563,87 @@ const CreateTaskDialog = ({ preselectedAssignee, mode = 'task' }: CreateTaskDial
     const now = new Date().toISOString();
     const statusHistory = [{ status: 'todo', enteredAt: now }];
 
+    // Pedido e corrida Motoboy devem nascer juntos: falha de permissao nao gera pedido orfao.
+    const taskRef = doc(collection(db, 'tasks'));
+    const createdTaskId = taskRef.id;
+    const taskData = {
+      board_visible: true,
+      title: titleForTask,
+      description: finalDescription,
+      ...(isOrderDialog
+        ? {
+            client_id: clientId,
+            client_name: clientName.trim(),
+            client_address: clientAddress.trim(),
+            delivery_address: effectiveDeliveryAddress,
+            delivery_place_id: enderecoDiferente ? deliveryAddressPlaceId : clientAddressPlaceId,
+            delivery_method: formaEntrega || null,
+          }
+        : {}),
+      priority,
+      assignee_id: isOrderDialog ? '' : effectiveAssignMode === 'employee' ? assigneeId : '',
+      deadline: fullDeadline,
+      status: 'todo',
+      created_by: currentUser.id,
+      sector: isOrderDialog
+        ? ('expedicao' as Sector)
+        : effectiveAssignMode === 'sector'
+          ? (sector as Sector)
+          : null,
+      image_url: firstImageUrl || null,
+      image_urls: allImageUrls,
+      status_history: statusHistory,
+      created_at: Timestamp.now(),
+      updated_at: Timestamp.now(),
+    };
+    const isMotoboyOrder = isSeparacao && formaEntrega === 'motoboy';
     try {
-      await addDoc(collection(db, 'tasks'), {
-        board_visible: true,
-        title: titleForTask,
-        description: finalDescription,
-        ...(isOrderDialog
-          ? {
-              client_id: clientId,
-              client_name: clientName.trim(),
-              client_address: clientAddress.trim(),
-              delivery_address: effectiveDeliveryAddress,
-              delivery_place_id: enderecoDiferente ? deliveryAddressPlaceId : clientAddressPlaceId,
-              delivery_method: formaEntrega || null,
-            }
-          : {}),
-        priority,
-        assignee_id: isOrderDialog ? '' : effectiveAssignMode === 'employee' ? assigneeId : '',
-        deadline: fullDeadline,
-        status: 'todo',
-        created_by: currentUser.id,
-        sector: isOrderDialog
-          ? ('expedicao' as Sector)
-          : effectiveAssignMode === 'sector'
-            ? (sector as Sector)
-            : null,
-        image_url: firstImageUrl || null,
-        image_urls: allImageUrls,
-        status_history: statusHistory,
-        created_at: Timestamp.now(),
-        updated_at: Timestamp.now(),
-      });
+      if (isMotoboyOrder) {
+        const separacaoDetails = [
+          pagamento === 'pago' ? '💰 Pago' : pagamento === 'nao_pago' ? '💰 Não Pago' : '',
+          boleto === 'com' ? '📄 COM Boleto' : boleto === 'sem' ? '📄 SEM Boleto' : '',
+          emissaoNF === 'sim' ? '🧾 COM NF' : emissaoNF === 'nao' ? '🧾 SEM NF' : '',
+          maquininha === 'sim'
+            ? '💳 Levar Maquininha'
+            : maquininha === 'nao'
+              ? '💳 Sem Maquininha'
+              : '',
+        ]
+          .filter(Boolean)
+          .join(' | ');
+        const infoTag = buildOrderInfoNotes();
+        const fullNotes = [separacaoDetails, infoTag].filter(Boolean).join(' ');
+        const createdRideRef = doc(db, 'motoboy_assignments', `order_${createdTaskId}`);
+        const rideData = {
+          description: enderecoDiferente
+            ? `🚨 ENDEREÇO DIFERENTE - Entrega: ${titleForTask}`
+            : `Entrega: ${titleForTask}`,
+          assigned_to: null,
+          assigned_by: currentUser.id,
+          ride_value: 15,
+          client_name: clientName.trim(),
+          location: effectiveDeliveryAddress,
+          notes: fullNotes,
+          status: 'pending',
+          task_id: null, // somente criar task do motoboy ao designar; nao vincular a tarefa de separacao
+          source_order_task_id: taskRef.id,
+          created_at: Timestamp.now(),
+          updated_at: Timestamp.now(),
+        };
+        const batch = writeBatch(db);
+        batch.set(taskRef, taskData);
+        batch.set(createdRideRef, rideData);
+        await batch.commit();
+      } else {
+        await setDoc(taskRef, taskData);
+      }
     } catch (error) {
-      console.error('Error creating task:', error);
-      toast.error('Erro ao criar tarefa');
+      console.error('[Novo Pedido] Nao foi possivel salvar tarefa e corrida:', error);
+      toast.error(
+        isMotoboyOrder
+          ? 'Nao foi possivel registrar pedido e corrida. Nenhum dos dois foi criado.'
+          : 'Nao foi possivel criar o pedido ou tarefa.'
+      );
       setUploading(false);
       return;
     }
@@ -582,10 +653,13 @@ const CreateTaskDialog = ({ preselectedAssignee, mode = 'task' }: CreateTaskDial
       try {
         await addDoc(collection(db, 'notifications'), {
           user_id: assigneeId,
+          userId: assigneeId,
+          taskId: createdTaskId,
           message: `Nova tarefa atribuída: ${titleForTask}`,
           type: 'task_created',
           read: false,
           created_at: Timestamp.now(),
+          createdAt: new Date().toISOString(),
         });
       } catch (error) {
         // A tarefa já foi criada: falha na notificação não pode interromper
@@ -595,47 +669,19 @@ const CreateTaskDialog = ({ preselectedAssignee, mode = 'task' }: CreateTaskDial
       }
     }
 
-    // Corrida nasce aprovada operacionalmente, mas sem motoboy designado.
-    if (isSeparacao && formaEntrega === 'motoboy' && currentUser) {
-      const separacaoDetails = [
-        pagamento === 'pago' ? '💰 Pago' : pagamento === 'nao_pago' ? '💰 Não Pago' : '',
-        boleto === 'com' ? '📄 COM Boleto' : boleto === 'sem' ? '📄 SEM Boleto' : '',
-        emissaoNF === 'sim' ? '🧾 COM NF' : emissaoNF === 'nao' ? '🧾 SEM NF' : '',
-        maquininha === 'sim'
-          ? '💳 Levar Maquininha'
-          : maquininha === 'nao'
-            ? '💳 Sem Maquininha'
-            : '',
-      ]
-        .filter(Boolean)
-        .join(' | ');
-      const infoTag = buildOrderInfoNotes();
-      const fullNotes = [separacaoDetails, infoTag].filter(Boolean).join(' ');
-      const createdRide = await addDoc(collection(db, 'motoboy_assignments'), {
-        description: enderecoDiferente
-          ? `🚨 ENDEREÇO DIFERENTE - Entrega: ${titleForTask}`
-          : `Entrega: ${titleForTask}`,
-        assigned_to: null,
-        assigned_by: currentUser.id,
-        ride_value: 15,
-        client_name: clientName.trim(),
-        location: effectiveDeliveryAddress,
-        notes: fullNotes,
-        status: 'pending',
-        task_id: null, // somente criar task do motoboy ao designar; nao vincular a tarefa de separacao
-        created_at: Timestamp.now(),
-        updated_at: Timestamp.now(),
-      });
+    // A corrida Motoboy ja foi salva atomicamente com o pedido.
+    if (isMotoboyOrder) {
+      const createdRideRef = doc(db, 'motoboy_assignments', `order_${createdTaskId}`);
       if (effectiveDeliveryAddress.trim()) {
         const estimate = httpsCallable<{ action: string; rideId: string }, unknown>(
           getFunctions(app, 'southamerica-east1'),
           'googleRoutePlanner'
         );
-        void estimate({ action: 'estimateRideAndPersist', rideId: createdRide.id }).catch((error) =>
-          console.warn('[pedido] km previsto não calculado', error)
+        void estimate({ action: 'estimateRideAndPersist', rideId: createdRideRef.id }).catch(
+          (error) => console.warn('[pedido] km previsto nao calculado', error)
         );
       }
-      toast.info('Corrida criada em Pendentes, pronta para designação.');
+      toast.info('Corrida criada em Pendentes, pronta para designacao.');
     }
 
     // If separação with Transportadora, create a personal task for Patricia (emp-1)
@@ -738,6 +784,13 @@ const CreateTaskDialog = ({ preselectedAssignee, mode = 'task' }: CreateTaskDial
         enderecoDiferente ? ENDERECO_BANNER : '',
         `Gerar etiqueta de envio via ${modalLabel}`,
         `Pedido: ${titleForTask}`,
+        ...(isOrderDialog
+          ? [
+              `Cliente: ${clientName.trim()}`,
+              `Endereço de entrega: ${effectiveDeliveryAddress}`,
+              `Endereço cadastrado: ${clientAddress.trim()}`,
+            ]
+          : []),
         pagamento === 'pago' ? '💰 Pago' : pagamento === 'nao_pago' ? '💰 Não Pago' : '',
         emissaoNF === 'sim'
           ? '🧾 COM Emissão de NF'

@@ -100,6 +100,23 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // Registro de token de push: somente o titular autenticado pode escrever o próprio token.
+    match /motoboy_device_tokens/{userId} {
+      allow get: if isActive() && currentUserId() == userId;
+      allow list: if false;
+      allow create, update: if isActive()
+        && currentUserId() == userId
+        && request.resource.data.keys().hasOnly(['user_id', 'token', 'platform', 'updated_at'])
+        && request.resource.data.keys().hasAll(['user_id', 'token', 'platform', 'updated_at'])
+        && request.resource.data.user_id == userId
+        && request.resource.data.token is string
+        && request.resource.data.token.size() >= 20
+        && request.resource.data.token.size() <= 4096
+        && request.resource.data.platform == 'android'
+        && request.resource.data.updated_at == request.time;
+      allow delete: if isActive() && currentUserId() == userId;
+    }
+
     match /system_notifications/{notificationId} {
       allow read: if isActive()
         && resource.data.recipient_user_id == currentUserId();
@@ -327,6 +344,23 @@ service cloud.firestore {
         && getAfter(claimPath).data.get('deleted_at', null) == null;
     }
 
+    // Julio pode vincular-se a uma tarefa geral da Expedicao sem transferir a titularidade.
+    function validJulioClaim() {
+      let before = resource.data.get('claimed_by_ids', []);
+      let after = request.resource.data.get('claimed_by_ids', []);
+      return exists(currentUserPath())
+        && get(currentUserPath()).data.get('username', '') == 'julio'
+        && resource.data.get('sector', '') == 'expedicao'
+        && resource.data.get('assignee_id', '') == ''
+        && resource.data.get('assignee_ids', []).size() == 0
+        && resource.data.get('status', '') != 'done'
+        && before is list && after is list
+        && !before.hasAny([currentUserId()])
+        && after.size() == before.size() + 1
+        && after.hasAll(before)
+        && after.hasAny([currentUserId()]);
+    }
+
     // Operational tasks: active staff may update status; transfer is forbidden to motoboys.
     match /tasks/{taskId} {
       allow read: if isActive();
@@ -337,6 +371,8 @@ service cloud.firestore {
       // Tarefas ligadas a garantia não podem ser excluídas diretamente.
       allow delete: if isActive() && resource.data.get('warranty_id', '') == '';
       allow update: if isActive()
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['claimed_by_ids'])
+          || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['claimed_by_ids']) && validJulioClaim()))
         && request.resource.data.get('warranty_id', '') == resource.data.get('warranty_id', '')
         && (resource.data.get('warranty_id', '') == ''
           || !request.resource.data.diff(resource.data).affectedKeys().hasAny([
@@ -762,7 +798,13 @@ service cloud.firestore {
       );
     }
     match /motoboy_journeys/{journeyId} {
-      allow get, list: if isActive() && (
+      // Permite consultar a jornada do proprio usuario mesmo antes de o documento existir.
+      // A Function e a unica responsavel por criar/alterar os registros.
+      allow get: if isActive() && (
+        canViewJourneyReports()
+        || journeyId.matches('^' + currentUserId() + '_[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+      );
+      allow list: if isActive() && (
         canViewJourneyReports() || resource.data.user_id == currentUserId()
       );
       allow create, update, delete: if false;
@@ -827,8 +869,8 @@ service cloud.firestore {
     match /cosmos_releases/{releaseId} {
       allow get, list: if isActive();
       allow create: if canPublishCosmos()
-        && request.resource.data.keys().hasOnly(['version','title','notes','channel','downloadUrl','mandatory','status','createdBy','createdAt','publishedAt'])
-        && request.resource.data.keys().hasAll(['version','title','notes','channel','downloadUrl','mandatory','status','createdBy','createdAt','publishedAt'])
+        && request.resource.data.keys().hasOnly(['version','title','notes','channel','downloadUrl','mandatory','status','createdBy','createdAt','publishedAt','audience','targetUserIds'])
+        && request.resource.data.keys().hasAll(['version','title','notes','channel','downloadUrl','mandatory','status','createdBy','createdAt','publishedAt','audience','targetUserIds'])
         && request.resource.data.version is string
         && request.resource.data.version.matches('^[0-9]+[.][0-9]+[.][0-9]+(-[a-zA-Z0-9.-]+)?$')
         && request.resource.data.title is string
@@ -836,6 +878,10 @@ service cloud.firestore {
         && request.resource.data.notes is string
         && request.resource.data.notes.size() > 0 && request.resource.data.notes.size() <= 10000
         && request.resource.data.channel in ['stable', 'beta']
+        && request.resource.data.audience in ['all', 'selected']
+        && request.resource.data.targetUserIds is list
+        && request.resource.data.targetUserIds.size() <= 250
+        && (request.resource.data.audience == 'all' || request.resource.data.targetUserIds.size() > 0)
         && request.resource.data.downloadUrl is string
         && (request.resource.data.downloadUrl == '' || request.resource.data.downloadUrl.matches('^https://[^ ]+$'))
         && request.resource.data.mandatory is bool
@@ -844,51 +890,26 @@ service cloud.firestore {
         && request.resource.data.createdAt == request.time
         && request.resource.data.publishedAt == request.time;
       allow update: if canPublishCosmos()
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['mandatory','title','notes','channel'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['mandatory','title','notes','channel','audience','targetUserIds'])
         && request.resource.data.mandatory is bool
         && request.resource.data.title is string
         && request.resource.data.title.size() > 0 && request.resource.data.title.size() <= 160
         && request.resource.data.notes is string
         && request.resource.data.notes.size() > 0 && request.resource.data.notes.size() <= 10000
-        && request.resource.data.channel in ['stable', 'beta'];
+        && request.resource.data.channel in ['stable', 'beta']
+        && request.resource.data.get('audience', 'all') in ['all', 'selected']
+        && request.resource.data.get('targetUserIds', []) is list
+        && request.resource.data.get('targetUserIds', []).size() <= 250
+        && (request.resource.data.get('audience', 'all') == 'all' || request.resource.data.get('targetUserIds', []).size() > 0);
       allow delete: if canPublishCosmos();
     }
 
-    // Cadastro de clientes: leitura para usuarios ativos e alteracoes apenas por gestores.
-    // Nao permite campos extras arbitrarios nem exclusao por usuarios comuns.
-    function validDepartmentalClient() {
-      return request.resource.data.keys().hasOnly([
-          'company_name', 'company_name_normalized', 'contact_person', 'phone',
-          'address', 'client_type', 'created_at', 'updated_at'
-        ])
-        && request.resource.data.keys().hasAll([
-          'company_name', 'company_name_normalized', 'contact_person', 'phone',
-          'address', 'client_type', 'created_at', 'updated_at'
-        ])
-        && request.resource.data.client_type in ['pf', 'pj']
-        && request.resource.data.company_name is string
-        && request.resource.data.company_name.size() > 0
-        && request.resource.data.company_name.size() <= 180
-        && request.resource.data.company_name_normalized is string
-        && request.resource.data.company_name_normalized.size() <= 180
-        && request.resource.data.contact_person is string
-        && request.resource.data.contact_person.size() <= 180
-        && request.resource.data.phone is string
-        && request.resource.data.phone.size() <= 40
-        && request.resource.data.address is string
-        && request.resource.data.address.size() <= 450
-        && request.resource.data.created_at is timestamp
-        && request.resource.data.updated_at is timestamp;
-    }
 
     match /departmental_clients/{clientId} {
       allow get, list: if isActive();
-      allow create: if isActive() && validDepartmentalClient()
-        && request.resource.data.created_at == request.time
-        && request.resource.data.updated_at == request.time;
-      allow update: if isAdmin() && validDepartmentalClient()
-        && request.resource.data.created_at == resource.data.created_at
-        && request.resource.data.updated_at == request.time;
+      // Distancia, origem e datas sao calculadas e persistidas pela Function.
+      // Escritas diretas do browser nao podem contornar essa validacao.
+      allow create, update: if false;
       allow delete: if isAdmin();
     }
 
@@ -898,15 +919,61 @@ service cloud.firestore {
       return canViewJourneyReports() || (isActive() && exists(currentUserPath())
         && get(currentUserPath()).data.get('sectors', []).hasAny(['expedicao']));
     }
-    match /motoboy_assignments/{rideId} {
-      allow read, create, delete: if isActive();
-      allow update: if isActive() && (
-        managesMotoboyRides()
-        || !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-          'status', 'assigned_to', 'assigned_by', 'task_id',
-          'accepted_at', 'completed_at', 'proof_url'
+    // V45.3: Vendas pode colocar um pedido de entrega na fila SEM designar motoboy.
+    // A prova de origem e o documento da tarefa/pedido criado pelo mesmo usuario.
+    function validSalesOrderRide(rideId) {
+      let r = request.resource.data;
+      let taskPath = /databases/$(database)/documents/tasks/$(r.source_order_task_id);
+      return isActive()
+        && exists(currentUserPath())
+        && get(currentUserPath()).data.get('active', true) != false
+        && get(currentUserPath()).data.get('sectors', []).hasAny(['vendas'])
+        && r.keys().hasOnly([
+          'description', 'assigned_to', 'assigned_by', 'ride_value',
+          'client_name', 'location', 'notes', 'status', 'task_id',
+          'source_order_task_id', 'created_at', 'updated_at'
         ])
+        && r.keys().hasAll([
+          'description', 'assigned_to', 'assigned_by', 'ride_value',
+          'client_name', 'location', 'notes', 'status', 'task_id',
+          'source_order_task_id', 'created_at', 'updated_at'
+        ])
+        && r.source_order_task_id is string
+        && r.source_order_task_id.size() > 0
+        && r.source_order_task_id.size() <= 150
+        && rideId == 'order_' + r.source_order_task_id
+        && r.assigned_to == null
+        && r.task_id == null
+        && r.status == 'pending'
+        && r.assigned_by == currentUserId()
+        && r.ride_value == 15
+        && r.description is string && r.description.size() <= 500
+        && r.client_name is string && r.client_name.size() > 0 && r.client_name.size() <= 180
+        && r.location is string && r.location.size() <= 450
+        && r.notes is string && r.notes.size() <= 1000
+        && r.created_at is timestamp && r.updated_at is timestamp
+        && existsAfter(taskPath)
+        && getAfter(taskPath).data.created_by == currentUserId()
+        && getAfter(taskPath).data.sector == 'expedicao'
+        && getAfter(taskPath).data.delivery_method == 'motoboy'
+        && getAfter(taskPath).data.client_name == r.client_name
+        && getAfter(taskPath).data.delivery_address == r.location;
+    }
+
+    match /motoboy_assignments/{rideId} {
+      allow read: if isActive();
+      // Operadores designam/alteram; Vendas cria apenas pendencias ligadas a pedidos.
+      allow create: if managesMotoboyRides() || validSalesOrderRide(rideId);
+      allow update, delete: if managesMotoboyRides();
+    }
+
+    // Relatos sao criados pela Function autenticada; equipe autorizada os consulta.
+    match /motoboy_occurrences/{occurrenceId} {
+      allow get, list: if isActive() && (
+        isAdmin() || (exists(currentUserPath()) &&
+          get(currentUserPath()).data.get('sectors', []).hasAny(['expedicao', 'ti']))
       );
+      allow create, update, delete: if false;
     }
     // Colecoes operacionais nao cobertas pelas regras especificas.
     match /{collection}/{document=**} {
@@ -938,6 +1005,8 @@ service cloud.firestore {
         && collection != 'motoboy_telemetry'
         && collection != 'motoboy_journey_telemetry'
         && collection != 'motoboy_assignments'
+        && collection != 'motoboy_device_tokens'
+        && collection != 'motoboy_occurrences'
         && collection != 'motoboy_daily_reports'
         && collection != 'motoboy_journeys'
         && collection != 'reference_3d_models'

@@ -16,8 +16,8 @@ interface Journey {
   start_odometer?: number;
   end_odometer?: number | null;
   odometer_km?: number;
-  start_ai_verified?: boolean;
-  end_ai_verified?: boolean;
+  start_photo_path?: string;
+  end_photo_path?: string;
 }
 type Person = { id: string; name: string };
 type ReportRow = {
@@ -184,7 +184,7 @@ export default function MotoboyMonthlyReports({
             closing: km(j.end_odometer),
             odometer: km(j.odometer_km),
             predicted: expected ? km(expected / 1000) : '—',
-            confirmed: !!(j.start_ai_verified && j.end_ai_verified),
+            confirmed: !!(j.start_photo_path && j.end_photo_path),
           };
         });
         return {
@@ -228,7 +228,6 @@ export default function MotoboyMonthlyReports({
         ''
       );
     }
-    lines.push('Informacoes para controle interno; GPS e odometro sao medicoes independentes.');
     savePdf(`JapanFlow-Jornada-${month}.pdf`, lines);
   };
 
@@ -239,9 +238,6 @@ export default function MotoboyMonthlyReports({
           <h3 className="flex items-center gap-2 text-sm font-semibold">
             <CalendarDays className="h-4 w-4 text-primary" /> Relatório mensal de jornadas
           </h3>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Por motoboy · odômetro, almoço e estimativa de rota
-          </p>
         </div>
         <div className="flex items-center gap-2">
           <Input

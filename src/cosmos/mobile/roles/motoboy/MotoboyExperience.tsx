@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Capacitor } from '@capacitor/core';
+import { Camera as NativeCamera, CameraResultType, CameraSource } from '@capacitor/camera';
+import { enableCosmosPush, disableCosmosPush } from './cosmosPush';
 import { startLocationWatcher } from './nativeLocation';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -57,6 +59,19 @@ type Screen =
   | 'offline'
   | 'gps';
 const date = (s: string | null) => (s ? new Date(s).toLocaleDateString('pt-BR') : '—');
+// Datas civis usam o fuso local, evitando que corridas mudem de dia por UTC.
+const localDay = (when = new Date()) =>
+  `${when.getFullYear()}-${String(when.getMonth() + 1).padStart(2, '0')}-${String(when.getDate()).padStart(2, '0')}`;
+const rideDay = (ride: Ride) => {
+  const value = ride.scheduledFor || ride.createdAt;
+  if (!value) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? value.slice(0, 10) : localDay(parsed);
+};
+const newestFirst = (a: Ride, b: Ride) =>
+  (b.createdAt || b.scheduledFor || '').localeCompare(a.createdAt || a.scheduledFor || '') ||
+  b.id.localeCompare(a.id);
 const status = (r: Ride) =>
   r.status === 'accepted'
     ? 'Em execução'
@@ -65,6 +80,24 @@ const status = (r: Ride) =>
       : r.status === 'pending_approval'
         ? 'Aguardando aprovação'
         : 'Aguardando início';
+function openRideNavigation(ride: Ride | null | undefined): boolean {
+  if (!ride) return false;
+  const lat = ride.destinationLat;
+  const lng = ride.destinationLng;
+  const hasCoordinates =
+    typeof lat === 'number' &&
+    typeof lng === 'number' &&
+    Number.isFinite(lat) &&
+    Number.isFinite(lng) &&
+    Math.abs(lat) <= 90 &&
+    Math.abs(lng) <= 180 &&
+    (lat !== 0 || lng !== 0);
+  const destination = hasCoordinates ? `${lat},${lng}` : ride.location?.trim();
+  if (!destination) return false;
+  const url = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destination)}&travelmode=driving&dir_action=navigate`;
+  window.open(url, '_blank', 'noopener,noreferrer');
+  return true;
+}
 function Brand({ small = false }: { small?: boolean }) {
   return (
     <img
@@ -231,7 +264,11 @@ export default function MotoboyExperience({ initialScreen = 'home' }: { initialS
     }
   }, [drawer, drawerMounted]);
   const [filter, setFilter] = useState<'all' | 'pending' | 'accepted' | 'completed'>('all');
+  const [rideDate, setRideDate] = useState(() => localDay());
   const [busy, setBusy] = useState(false);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
+  const [pushEnabled, setPushEnabled] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [incidentType, setIncidentType] = useState('Cliente ausente');
@@ -259,6 +296,63 @@ export default function MotoboyExperience({ initialScreen = 'home' }: { initialS
     setPreview(url);
     return () => URL.revokeObjectURL(url);
   }, [file]);
+  const pushKey = currentUser?.id ? `japanflow:push-enabled:${currentUser.id}` : null;
+  useEffect(() => {
+    setPushEnabled(!!pushKey && localStorage.getItem(pushKey) === 'true');
+    if (!pushKey || !currentUser?.id || localStorage.getItem(pushKey) !== 'true') return;
+    if (!Capacitor.isNativePlatform()) return;
+    // Renova o token após reiniciar o app, sem reabrir o pedido de permissão.
+    void enableCosmosPush(currentUser.id).catch((error) => {
+      console.error('[japanflowPush] restauração', error);
+    });
+  }, [currentUser?.id, pushKey]);
+  const enablePush = async () => {
+    if (!currentUser?.id || pushBusy) return;
+    setPushBusy(true);
+    try {
+      await enableCosmosPush(currentUser.id);
+      if (pushKey) localStorage.setItem(pushKey, 'true');
+      setPushEnabled(true);
+      toast.success('Notificações ativadas');
+    } catch (error) {
+      console.error('[japanflowPush] ativação', error);
+      toast.error(error instanceof Error ? error.message : 'Falha ao ativar notificações');
+    } finally {
+      setPushBusy(false);
+    }
+  };
+  const takeProofPhoto = async () => {
+    if (photoBusy) return;
+    setPhotoBusy(true);
+    try {
+      const shot = await NativeCamera.getPhoto({
+        source: CameraSource.Camera,
+        resultType: CameraResultType.Uri,
+        quality: 82,
+        allowEditing: false,
+      });
+      if (!shot.webPath) throw new Error('A câmera não retornou uma fotografia');
+      const response = await fetch(shot.webPath);
+      if (!response.ok) throw new Error('Não foi possível ler a fotografia');
+      const blob = await response.blob();
+      const mime = blob.type === 'image/png' ? 'image/png' : 'image/jpeg';
+      const file = new File(
+        [blob],
+        `notinha-${Date.now()}.${mime === 'image/png' ? 'png' : 'jpg'}`,
+        { type: mime }
+      );
+      if (file.size > 12 * 1024 * 1024) throw new Error('Fotografia acima de 12 MB');
+      setFile(file);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!/cancel|cancelad|user cancelled|user canceled/i.test(message)) {
+        console.error('[motoboyProof] camera', error);
+        toast.error(message);
+      }
+    } finally {
+      setPhotoBusy(false);
+    }
+  };
   const selected = rides.all.find((r) => r.id === selectedId) || null;
   const open = (r: Ride) => {
     setSelectedId(r.id);
@@ -281,7 +375,7 @@ export default function MotoboyExperience({ initialScreen = 'home' }: { initialS
           }
         );
         setTracking(true);
-        setGpsState('ok');
+        // Estado 'ok' apenas apos a primeira posicao real recebida pelo watcher.
         if (gpsKey) localStorage.setItem(gpsKey, 'true');
         toast.success('Rastreamento ativo no dispositivo');
       } else if (navigator.geolocation) {
@@ -351,7 +445,7 @@ export default function MotoboyExperience({ initialScreen = 'home' }: { initialS
       .then(() => {
         if (!cancelled) {
           setTracking(true);
-          setGpsState('ok');
+          // A confirmacao de GPS depende do callback com uma posicao real.
         }
       })
       .catch(() => {
@@ -378,16 +472,22 @@ export default function MotoboyExperience({ initialScreen = 'home' }: { initialS
     }
   };
   const unread = notifications.filter((n) => !n.read).length;
-  const today = new Date().toLocaleDateString('en-CA');
-  const todayRides = rides.all.filter(
-    (r) => (r.scheduledFor || r.createdAt || '').slice(0, 10) === today
+  const today = localDay();
+  const todayRides = useMemo(
+    () => rides.all.filter((r) => rideDay(r) === today),
+    [rides.all, today]
   );
-  const todayCompleted = rides.completed.filter(
-    (r) => (r.completedAt || '').slice(0, 10) === today
+  const todayCompleted = todayRides.filter((r) => r.status === 'completed');
+  const todayPending = todayRides.filter((r) => r.status === 'pending').sort(newestFirst);
+  const todayActive = todayRides.filter((r) => r.status === 'accepted').sort(newestFirst);
+  const todayRoute = rides.route.filter((r) => rideDay(r) === today);
+  const dateRides = useMemo(
+    () => rides.all.filter((r) => rideDay(r) === rideDate).sort(newestFirst),
+    [rides.all, rideDate]
   );
   const list = useMemo(
-    () => rides.all.filter((r) => filter === 'all' || r.status === filter),
-    [rides.all, filter]
+    () => dateRides.filter((r) => filter === 'all' || r.status === filter),
+    [dateRides, filter]
   );
   const bottom = (
     <nav className="jm-bottom" aria-label="Navegação inferior">
@@ -482,7 +582,7 @@ export default function MotoboyExperience({ initialScreen = 'home' }: { initialS
             <div className="jm-stats">
               <Tile label="Corridas hoje" value={todayRides.length} />
               <Tile label="Concluídas" value={todayCompleted.length} />
-              <Tile label="Pendentes" value={rides.pending.length} />
+              <Tile label="Pendentes" value={todayPending.length} />
             </div>
             <div className="jm-title-line">
               <strong>Sua próxima rota</strong>
@@ -491,7 +591,7 @@ export default function MotoboyExperience({ initialScreen = 'home' }: { initialS
               </button>
             </div>
             <div className="jm-home-map">
-              <MotoboyMap rides={rides.route} />
+              <MotoboyMap rides={todayRoute} />
             </div>
             <div className="jm-title-line">
               <strong>Em destaque</strong>
@@ -505,16 +605,16 @@ export default function MotoboyExperience({ initialScreen = 'home' }: { initialS
               <p role="alert" className="jm-error">
                 {rides.error}
               </p>
-            ) : rides.route.length ? (
+            ) : todayActive.length || todayPending.length ? (
               <Card
-                ride={rides.active[0] || rides.pending[0]}
-                onClick={() => open(rides.active[0] || rides.pending[0])}
+                ride={todayActive[0] || todayPending[0]}
+                onClick={() => open(todayActive[0] || todayPending[0])}
               />
             ) : (
               <p className="jm-empty">Nenhuma entrega atribuída no momento.</p>
             )}
             <div className="jm-title-line">
-              <strong>Corridas pendentes ({rides.pending.length})</strong>
+              <strong>Corridas pendentes ({todayPending.length})</strong>
               <button
                 onClick={() => {
                   setFilter('pending');
@@ -524,7 +624,7 @@ export default function MotoboyExperience({ initialScreen = 'home' }: { initialS
                 Ver todas <ArrowRight size={13} />
               </button>
             </div>
-            {rides.pending.slice(0, 2).map((r) => (
+            {todayPending.slice(0, 2).map((r) => (
               <Card key={r.id} ride={r} onClick={() => open(r)} />
             ))}
           </div>
@@ -535,15 +635,39 @@ export default function MotoboyExperience({ initialScreen = 'home' }: { initialS
         <>
           {top()}
           <div className="jm-scroll jm-page">
-            <HeaderText
-              eyebrow="SUA OPERAÇÃO"
-              title="Minhas corridas"
-              description="Acompanhe o que foi atribuído a você."
-            />
+            <HeaderText eyebrow="SUA OPERAÇÃO" title="Minhas corridas" />
+            <div className="flex items-center gap-2 flex-wrap mb-3">
+              <label htmlFor="jm-ride-date" className="sr-only">
+                Dia das corridas
+              </label>
+              <input
+                id="jm-ride-date"
+                type="date"
+                value={rideDate}
+                onChange={(event) => setRideDate(event.target.value || localDay())}
+                className="min-w-0 rounded-xl border border-current/15 bg-transparent px-3 py-2 text-sm"
+              />
+              <button
+                type="button"
+                onClick={() => setRideDate(localDay())}
+                className="rounded-xl border border-current/15 px-3 py-2 text-sm font-semibold"
+              >
+                Hoje
+              </button>
+            </div>
             <div className="jm-stats jm-stats-inline">
-              <Tile label="Em execução" value={rides.active.length} />
-              <Tile label="Pendentes" value={rides.pending.length} />
-              <Tile label="Concluídas" value={rides.completed.length} />
+              <Tile
+                label="Em execução"
+                value={dateRides.filter((r) => r.status === 'accepted').length}
+              />
+              <Tile
+                label="Pendentes"
+                value={dateRides.filter((r) => r.status === 'pending').length}
+              />
+              <Tile
+                label="Concluídas"
+                value={dateRides.filter((r) => r.status === 'completed').length}
+              />
             </div>
             <div className="jm-filter" role="group" aria-label="Filtrar corridas">
               {(
@@ -600,12 +724,8 @@ export default function MotoboyExperience({ initialScreen = 'home' }: { initialS
                     <Button
                       secondary
                       onClick={() =>
-                        selected.location
-                          ? window.open(
-                              `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(selected.location)}&travelmode=driving&dir_action=navigate`,
-                              '_blank',
-                              'noopener,noreferrer'
-                            )
+                        openRideNavigation(selected)
+                          ? undefined
                           : toast.error('Endereço não informado')
                       }
                     >
@@ -747,13 +867,7 @@ export default function MotoboyExperience({ initialScreen = 'home' }: { initialS
                     <Button
                       onClick={() => {
                         const r = selected || rides.active[0] || rides.pending[0];
-                        if (r?.location)
-                          window.open(
-                            `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(r.location)}&travelmode=driving&dir_action=navigate`,
-                            '_blank',
-                            'noopener,noreferrer'
-                          );
-                        else toast.error('Não há endereço disponível');
+                        if (!openRideNavigation(r)) toast.error('Não há endereço disponível');
                       }}
                     >
                       <Navigation size={17} /> Navegar
@@ -770,33 +884,25 @@ export default function MotoboyExperience({ initialScreen = 'home' }: { initialS
         <>
           {top('Comprovante')}
           <div className="jm-scroll jm-page">
-            <HeaderText
-              eyebrow="ETAPA FINAL"
-              title="Comprovante de entrega"
-              description="Fotografe a notinha assinada para finalizar a corrida."
-            />
-            <label className="jm-photo-zone">
+            <HeaderText eyebrow="ETAPA FINAL" title="Comprovante de entrega" />
+            <button
+              type="button"
+              className="jm-photo-zone"
+              onClick={() => void takeProofPhoto()}
+              disabled={photoBusy || busy}
+              aria-label="Tirar foto do comprovante"
+            >
               <Camera size={34} />
               {preview ? (
-                <img src={preview} alt="Prévia do comprovante" />
+                <img src={preview} alt="Comprovante capturado" />
               ) : (
-                <>
-                  <b>Adicione a foto da notinha</b>
-                  <small>Foto legível com a assinatura do recebedor</small>
-                </>
+                <b>Tirar foto da notinha</b>
               )}
-              <input
-                type="file"
-                accept="image/*"
-                capture="environment"
-                onChange={(e) => setFile(e.currentTarget.files?.[0] || null)}
-              />
-            </label>
-            <p className="jm-warning">
-              A corrida só será concluída após o envio e confirmação do comprovante no Firebase.
-            </p>
+            </button>
             <Button
-              disabled={!selected || selected.status !== 'accepted' || !file || busy || !online}
+              disabled={
+                !selected || selected.status !== 'accepted' || !file || busy || photoBusy || !online
+              }
               onClick={() =>
                 selected &&
                 file &&
@@ -988,10 +1094,6 @@ export default function MotoboyExperience({ initialScreen = 'home' }: { initialS
                 onChange={(e) => setIncidentText(e.target.value)}
               />
             </div>
-            <p className="jm-warning">
-              O relato será registrado nas observações desta corrida, visíveis no ERP. Não altera o
-              status nem envia mensagens automáticas.
-            </p>
             <Button
               disabled={!selected || busy || !online || incidentText.trim().length < 10}
               onClick={() =>
@@ -1045,12 +1147,25 @@ export default function MotoboyExperience({ initialScreen = 'home' }: { initialS
                 </button>
               ))}
             </div>
+            {Capacitor.isNativePlatform() && !pushEnabled && (
+              <Button secondary disabled={pushBusy} onClick={() => void enablePush()}>
+                <Bell size={17} /> {pushBusy ? 'Ativando…' : 'Ativar notificações'}
+              </Button>
+            )}
             <div className="jm-version-panel">
               <VersionInfo withCheck />
             </div>
             <Button
               secondary
               onClick={async () => {
+                if (currentUser?.id) {
+                  try {
+                    await disableCosmosPush(currentUser.id);
+                  } catch (error) {
+                    console.warn('[japanflowPush] logout', error);
+                  }
+                  localStorage.removeItem(`japanflow:push-enabled:${currentUser.id}`);
+                }
                 await logout();
                 navigate('/login', { replace: true });
               }}

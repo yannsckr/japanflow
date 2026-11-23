@@ -5,3 +5,9 @@ supabase/
 dist/
 node_modules/
 tests/warranty-emulator/.local/
+android/app/src/main/assets/
+android/capacitor-cordova-android-plugins/build/
+android/app/build/
+android/build/
+dist-android/
+apk-local/

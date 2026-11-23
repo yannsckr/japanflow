@@ -6,6 +6,8 @@ import { useApp } from '@/contexts/AppContext';
 import { useTaskPermissions } from '@/hooks/useTaskPermissions';
 import { canCreateTasksForAll } from '@/lib/taskCreateAccess';
 import KanbanBoard from '@/components/KanbanBoard';
+import SectorTasksList from '@/components/SectorTasksList';
+import { isJulio } from '@/lib/taskAudience';
 import PickupsPanel from '@/components/PickupsPanel';
 import { canSeePickups } from '@/components/PickupsPanel';
 import CreateTaskDialog from '@/components/CreateTaskDialog';
@@ -34,6 +36,9 @@ const EmployeeBoardPage = () => {
   const viewUserId = isAdmin && employeeId ? employeeId : currentUser?.id;
 
   const viewUser = viewUserId ? users.find((user) => user.id === viewUserId) : undefined;
+  const isWilliamBoard =
+    viewUser?.id === 'emp-12' ||
+    viewUser?.username?.trim().toLowerCase().replace(/_+$/, '') === 'william';
 
   const tasks = viewUserId ? getTasksForUser(viewUserId) : [];
   const activeTaskCount = tasks.filter(
@@ -163,11 +168,14 @@ const EmployeeBoardPage = () => {
             {isAdmin && <CreateTaskDialog preselectedAssignee={viewUserId} />}
 
             {!isAdmin && showCreateTask && <CreateTaskDialog />}
-            <CreateTaskDialog mode="order" />
+            {!isWilliamBoard && <CreateTaskDialog mode="order" />}
           </div>
         </div>
       </section>
 
+      {currentUser?.id === viewUserId && isJulio(currentUser) && (
+        <SectorTasksList userId={viewUserId} />
+      )}
       <CustomizableWorkspace
         userId={viewUserId}
         blocks={[

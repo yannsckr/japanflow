@@ -35,7 +35,7 @@ export async function enableCosmosPush(userId: string): Promise<void> {
   }
   await PushNotifications.createChannel({
     id: 'cosmos_updates',
-    name: 'JapanFlow COSMOS',
+    name: 'JapanFlow',
     description: 'Corridas, mensagens e atualizações da equipe',
     importance: 4,
     visibility: 1,

@@ -1,5 +1,4 @@
-import { doc, runTransaction, serverTimestamp } from 'firebase/firestore';
-import app, { db } from '@/lib/firebase';
+import app from '@/lib/firebase';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { uploadImage } from '@/lib/uploadImage';
 
@@ -30,24 +29,18 @@ export async function finishRide(rideId: string, userId: string, file: File) {
   await rideTransition({ action: 'finish', rideId, storagePath, proofUrl: publicUrl });
 }
 
+const sendOccurrence = httpsCallable<
+  { rideId: string; category: string; message: string },
+  { ok: boolean }
+>(getFunctions(app, 'southamerica-east1'), 'motoboyReportOccurrence');
+
 export async function reportRideOccurrence(
   rideId: string,
-  userId: string,
+  _userId: string,
   category: string,
   message: string
 ) {
   if (message.trim().length < 10)
     throw new Error('Descreva o problema em pelo menos 10 caracteres.');
-  await runTransaction(db, async (tx) => {
-    const ref = doc(db, 'motoboy_assignments', rideId);
-    const snapshot = await tx.get(ref);
-    if (!snapshot.exists() || snapshot.data().assigned_to !== userId)
-      throw new Error('Corrida não encontrada para sua conta.');
-    const notes = String(snapshot.data().notes || '').trim();
-    const entry = `[Ocorrência ${category} — ${new Date().toLocaleString('pt-BR')}]: ${message.trim().slice(0, 1000)}`;
-    tx.update(ref, {
-      notes: `${notes ? notes + '\n' : ''}${entry}`,
-      updated_at: serverTimestamp(),
-    });
-  });
+  await sendOccurrence({ rideId, category, message: message.trim() });
 }

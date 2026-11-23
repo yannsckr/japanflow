@@ -21,6 +21,7 @@ import {
 } from '@/types';
 import { CostGuardMode, useCostGuard } from '@/hooks/useCostGuard';
 import { db } from '@/lib/firebase';
+import { belongsToTaskBoard, isJulio } from '@/lib/taskAudience';
 import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { useFirebaseTasks } from '@/hooks/useFirebaseTasks';
 import { useFirebaseCalendar } from '@/hooks/useFirebaseCalendar';
@@ -67,7 +68,7 @@ interface AppContextType {
   deleteTask: (taskId: string) => void;
   updateTaskStatus: (taskId: string, status: TaskStatus) => Promise<void>;
   updateTaskPriority: (taskId: string, priority: Priority) => void;
-  claimSectorTask: (taskId: string) => void;
+  claimSectorTask: (taskId: string) => Promise<void>;
   sendMessage: (msg: Omit<ChatMessage, 'id' | 'timestamp'>) => void;
   editMessage: (msgId: string, newContent: string) => void;
   deleteMessage: (msgId: string) => void;
@@ -374,11 +375,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     [firebaseTasks]
   );
   const claimSectorTask = useCallback(
-    (taskId: string) => {
-      if (!currentUser) return;
-      firebaseTasks.claimSectorTask(taskId, currentUser.id);
+    async (taskId: string) => {
+      if (!currentUser || !isJulio(currentUser)) throw new Error('Sem permissão de resgate');
+      const task = tasks.find((item) => item.id === taskId);
+      if (
+        !task ||
+        task.sector !== 'expedicao' ||
+        task.assigneeId ||
+        task.assigneeIds?.length ||
+        task.status === 'done'
+      ) {
+        throw new Error('Tarefa não disponível para resgate');
+      }
+      await firebaseTasks.claimSectorTask(taskId, currentUser.id);
     },
-    [currentUser, firebaseTasks]
+    [currentUser, firebaseTasks, tasks]
   );
   const sendMessage = useCallback(
     (msg: Omit<ChatMessage, 'id' | 'timestamp'>) => {
@@ -422,20 +433,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           .filter((value): value is string => Boolean(value))
           .map((value) => value.trim())
       );
-      const isExpedicaoUser =
-        user?.active !== false && user?.sectors?.includes('expedicao' as Sector) === true;
+      if (!user) return [];
+      const username = (user.username || '').trim().toLowerCase().replace(/_+$/, '');
+      const isWilliam = user.id === 'emp-12' || username === 'william';
+      const receivesExpedicaoOrders = username === 'ryan' || username === 'julio';
       return tasks.filter((task) => {
-        const assignedToUser = [...(task.assigneeIds || []), task.assigneeId].some((id) =>
-          aliases.has(String(id || '').trim())
-        );
-        // Tarefas destinadas ao setor aparecem diretamente no Kanban de todos
-        // os colaboradores ativos da Expedicao, sem fila ou resgate.
-        const availableToExpedicao =
-          isExpedicaoUser &&
-          task.sector === 'expedicao' &&
-          !task.assigneeId &&
-          !task.assigneeIds?.length;
-        return assignedToUser || availableToExpedicao;
+        // William nao recebe pedidos gerais, mas recebe etiquetas Correios destinadas a ele.
+        if (isWilliam && task.sector === 'expedicao') {
+          const isAssignedToWilliam =
+            task.assigneeId === user.id || (task.assigneeIds?.includes(user.id) ?? false);
+          const isCorreiosLabel = /etiqueta\s+(sedex|pac)\s*:/i.test(task.title);
+          if (!isAssignedToWilliam || !isCorreiosLabel) return false;
+        }
+        // Pedidos gerais da Expedicao ficam nos quadros de Ryan e Julio.
+        const isGeneralExpedicaoTask =
+          task.sector === 'expedicao' && !task.assigneeId && !task.assigneeIds?.length;
+        if (isGeneralExpedicaoTask && !receivesExpedicaoOrders) return false;
+        return belongsToTaskBoard(task, user, aliases);
       });
     },
     [tasks, users]
