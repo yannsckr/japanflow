@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import { completedHistory, newestActivityFirst } from './rideSyncPolicy';
 
 export type Ride = {
   id: string;
@@ -34,17 +35,29 @@ export function useMotoboyRides(userId?: string) {
   const [rides, setRides] = useState<Ride[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [serverConfirmed, setServerConfirmed] = useState(false);
+  const [lastServerSyncAt, setLastServerSyncAt] = useState<number | null>(null);
   useEffect(() => {
     if (!userId) {
       setRides([]);
       setLoading(false);
+      setServerConfirmed(false);
+      setLastServerSyncAt(null);
       return;
     }
     setLoading(true);
+    setRides([]);
     setError(null);
+    setServerConfirmed(false);
+    setLastServerSyncAt(null);
     return onSnapshot(
       query(collection(db, 'motoboy_assignments'), where('assigned_to', '==', userId)),
+      { includeMetadataChanges: true },
       (snapshot) => {
+        const confirmed = !snapshot.metadata.fromCache && !snapshot.metadata.hasPendingWrites;
+        setServerConfirmed(confirmed);
+        if (confirmed) setLastServerSyncAt(Date.now());
+        setError(null);
         setRides(
           snapshot.docs.map((record) => {
             const data = record.data();
@@ -79,6 +92,7 @@ export function useMotoboyRides(userId?: string) {
       (reason) => {
         console.error('Corridas motoboy:', reason);
         setError('Não foi possível sincronizar corridas.');
+        setServerConfirmed(false);
         setLoading(false);
       }
     );
@@ -95,8 +109,10 @@ export function useMotoboyRides(userId?: string) {
       active: sorted.filter((r) => r.status === 'accepted'),
       scheduled: sorted.filter((r) => r.status === 'pending_approval'),
       completed: sorted.filter((r) => r.status === 'completed'),
+      history: completedHistory(sorted),
+      activity: newestActivityFirst(sorted),
       route: sorted.filter((r) => ['pending', 'accepted'].includes(r.status)),
     };
   }, [rides]);
-  return { ...grouped, loading, error };
+  return { ...grouped, loading, error, serverConfirmed, lastServerSyncAt };
 }

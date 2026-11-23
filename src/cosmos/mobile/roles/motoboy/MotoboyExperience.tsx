@@ -39,6 +39,8 @@ import MotoboyMap from './MotoboyMap';
 import MotoboyJourneyManager from './MotoboyJourneyManager';
 import { useJourneyGpsRecording } from './useJourneyGpsRecording';
 import { useMotoboyRides, type Ride } from './useMotoboyRides';
+import { canOperateRide } from './rideSyncPolicy';
+import { isRideActionScreen, wasSelectedRideRemoved } from './rideSelectionSync';
 import { finishRide, reportRideOccurrence, startRide } from './motoboyWorkflow';
 import logoLight from '@/assets/japanflow-logo-light.png';
 import './motoboy-app.css';
@@ -274,6 +276,7 @@ export default function MotoboyExperience({ initialScreen = 'home' }: { initialS
   const [incidentType, setIncidentType] = useState('Cliente ausente');
   const [incidentText, setIncidentText] = useState('');
   const [online, setOnline] = useState(navigator.onLine);
+  const ridesReady = canOperateRide(online, rides.serverConfirmed);
   const [mapSheetCollapsed, setMapSheetCollapsed] = useState(false);
   const [sheetTouchY, setSheetTouchY] = useState<number | null>(null);
   const [gpsState, setGpsState] = useState<'unknown' | 'ok' | 'denied'>('unknown');
@@ -354,6 +357,26 @@ export default function MotoboyExperience({ initialScreen = 'home' }: { initialS
     }
   };
   const selected = rides.all.find((r) => r.id === selectedId) || null;
+  // O snapshot pode remover ou transferir a corrida enquanto a tela de ação está aberta.
+  // Não interpretar falha de rede ou carregamento como exclusão confirmada.
+  useEffect(() => {
+    if (
+      !wasSelectedRideRemoved(
+        selectedId,
+        rides.all.map((ride) => ride.id),
+        rides.loading || !rides.serverConfirmed,
+        rides.error
+      )
+    )
+      return;
+    setSelectedId(null);
+    setFile(null);
+    setIncidentText('');
+    if (isRideActionScreen(screen)) {
+      setScreen('rides');
+      toast.info('Entrega removida ou transferida. Lista atualizada.');
+    }
+  }, [selectedId, rides.all, rides.loading, rides.error, screen]);
   const open = (r: Ride) => {
     setSelectedId(r.id);
     setScreen('detail');
@@ -460,7 +483,10 @@ export default function MotoboyExperience({ initialScreen = 'home' }: { initialS
     };
   }, [gpsKey]);
   const execute = async (action: () => Promise<void>, success: string, after: Screen) => {
-    if (busy || !online) return;
+    if (busy || !ridesReady) {
+      if (!ridesReady) toast.warning('Aguarde a sincronização com o servidor.');
+      return;
+    }
     setBusy(true);
     try {
       await action();
@@ -528,6 +554,11 @@ export default function MotoboyExperience({ initialScreen = 'home' }: { initialS
         showActions={screen === 'home' || screen === 'journey'}
         hasOpenRides={rides.pending.length > 0 || rides.active.length > 0}
       />
+      {online && !rides.loading && !rides.serverConfirmed && (
+        <p role="status" className="jm-warning">
+          Sincronizando corridas com o servidor. Ações temporariamente indisponíveis.
+        </p>
+      )}
       {!online && screen !== 'offline' && (
         <button className="jm-offline-alert" onClick={() => go('offline')}>
           <WifiOff size={15} /> Sem conexão — toque para detalhes
@@ -756,7 +787,7 @@ export default function MotoboyExperience({ initialScreen = 'home' }: { initialS
                 </div>
                 {selected.status === 'pending' && (
                   <Button
-                    disabled={busy || !online}
+                    disabled={busy || !ridesReady}
                     onClick={() => {
                       setSelectedId(selected.id);
                       void execute(
@@ -902,7 +933,12 @@ export default function MotoboyExperience({ initialScreen = 'home' }: { initialS
             </button>
             <Button
               disabled={
-                !selected || selected.status !== 'accepted' || !file || busy || photoBusy || !online
+                !selected ||
+                selected.status !== 'accepted' ||
+                !file ||
+                busy ||
+                photoBusy ||
+                !ridesReady
               }
               onClick={() =>
                 selected &&
@@ -1014,7 +1050,7 @@ export default function MotoboyExperience({ initialScreen = 'home' }: { initialS
             <div className="jm-stats jm-stats-inline jm-history-stats">
               <Tile label="Corridas concluídas" value={rides.completed.length} />
             </div>
-            {rides.completed.map((r) => (
+            {rides.history.map((r) => (
               <Card ride={r} key={r.id} onClick={() => open(r)} />
             ))}
             {!rides.completed.length && (
@@ -1040,7 +1076,7 @@ export default function MotoboyExperience({ initialScreen = 'home' }: { initialS
             </div>
             <div className="jm-panel">
               <h3>Atividade registrada</h3>
-              {rides.all.slice(0, 30).map((r) => (
+              {rides.activity.slice(0, 30).map((r) => (
                 <button className="jm-timeline-item" key={r.id} onClick={() => open(r)}>
                   <span
                     className={`jm-timeline-bullet ${r.status === 'completed' ? 'jm-done' : ''}`}
@@ -1096,7 +1132,7 @@ export default function MotoboyExperience({ initialScreen = 'home' }: { initialS
               />
             </div>
             <Button
-              disabled={!selected || busy || !online || incidentText.trim().length < 10}
+              disabled={!selected || busy || !ridesReady || incidentText.trim().length < 10}
               onClick={() =>
                 selected &&
                 execute(
