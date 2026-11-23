@@ -1,4 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+vi.mock('@/lib/firebase', () => ({ db: {} }));
 import { isReleaseForUser, type CosmosRelease } from '../releaseService';
 const release = (fields: Partial<CosmosRelease> = {}) =>
   ({
