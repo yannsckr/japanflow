@@ -13,6 +13,7 @@ import { cleanJourneyGpsPoint } from '@/lib/motoboyJourneyGps';
 import { measureGpsSegment, type GpsSample } from '@/lib/motoboyTelemetry';
 import { appendGpsPoint, readGpsQueue, storeGpsQueue } from '@/lib/motoboyGpsQueue';
 import { subscribeNativeLocationSample } from './nativeLocation';
+import { startNativeGpsTransport, stopNativeGpsTransport } from './nativeGpsTransport';
 import type { Ride } from './useMotoboyRides';
 
 /**
@@ -29,6 +30,54 @@ export function useJourneyGpsRecording(userId: string | undefined, rides: Ride[]
   const previous = useRef<GpsSample | null>(null);
   const lastAt = useRef(0);
   const flushRef = useRef<() => void>(() => undefined);
+
+  // V46.2: o serviço Android é ativado somente durante jornada + consentimento.
+  // Um listener de jornada no SDK nativo continua fiscalizando o estado com WebView suspenso.
+  useEffect(() => {
+    if (!userId) return;
+    let journeyActive = false;
+    let disposed = false;
+    const reconcile = () => {
+      if (disposed) return;
+      const consent = localStorage.getItem(`japanflow:location-opt-in:${userId}`) === 'true';
+      if (!journeyActive || !consent) {
+        void stopNativeGpsTransport().catch(() => undefined);
+        return;
+      }
+      void startNativeGpsTransport(userId).catch((error) => {
+        // O watcher existente continua funcionando mesmo se o plugin native falhar.
+        console.warn('[nativeGPS] indisponível, watcher anterior mantido', error);
+      });
+    };
+    const day = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Sao_Paulo',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date());
+    const unsubscribe = onSnapshot(
+      doc(db, 'motoboy_journeys', `${userId}_${day}`),
+      (snapshot) => {
+        const d = snapshot.data();
+        journeyActive =
+          !!d?.started_at && !d?.ended_at && (!d?.lunch_started_at || !!d?.lunch_ended_at);
+        reconcile();
+      },
+      () => {
+        journeyActive = false;
+        reconcile();
+      }
+    );
+    window.addEventListener('online', reconcile);
+    window.addEventListener('japanflow:gps-consent', reconcile);
+    return () => {
+      disposed = true;
+      unsubscribe();
+      window.removeEventListener('online', reconcile);
+      window.removeEventListener('japanflow:gps-consent', reconcile);
+      void stopNativeGpsTransport().catch(() => undefined);
+    };
+  }, [userId]);
 
   useEffect(() => {
     if (!userId) {
@@ -160,7 +209,7 @@ export function useJourneyGpsRecording(userId: string | undefined, rides: Ride[]
       const segment = prev ? measureGpsSegment(prev, point) : null;
       previous.current = point;
       lastAt.current = point.timestamp;
-      const reason = segment && !segment.accepted ? segment.reason : null;
+      const reason = segment && 'reason' in segment ? segment.reason : null;
       // Mantém a regra vigente: ruído ou saltos não entram no percurso.
       if (reason && reason !== 'time' && reason !== 'stationary') return;
       const shouldRecordHistory = reason !== 'stationary';
