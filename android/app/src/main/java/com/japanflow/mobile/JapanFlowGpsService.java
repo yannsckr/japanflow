@@ -17,6 +17,7 @@ import android.location.LocationManager;
 import android.os.Build;
 import android.os.IBinder;
 import android.os.Looper;
+import android.os.Handler;
 import androidx.annotation.NonNull;
 import androidx.core.app.NotificationCompat;
 import androidx.core.content.ContextCompat;
@@ -40,6 +41,34 @@ public final class JapanFlowGpsService extends Service implements LocationListen
     private static final String CHANNEL = "japanflow_gps";
     private static final int NOTIFICATION_ID = 462;
     private static final long MIN_INTERVAL_MS = 15_000;
+    // Interrompe a coleta mesmo se o dispositivo permanecer parado e sem callbacks GPS.
+    private static final long OFFLINE_GRACE_MS = 120_000;
+    private static final long WATCHDOG_INTERVAL_MS = 20_000;
+    private final Handler watchdog = new Handler(Looper.getMainLooper());
+    private long offlineSince;
+    private final Runnable watchdogTask = new Runnable() {
+        @Override public void run() {
+            if (journeyId == null || userId == null) return;
+            long now = System.currentTimeMillis();
+            String today = LocalDate.now(ZoneId.of("America/Sao_Paulo")).toString();
+            if (!journeyId.endsWith("_" + today) || now - startedAt > 12L * 60 * 60 * 1000 ||
+                    !hasLocationPermission() || FirebaseAuth.getInstance().getCurrentUser() == null) {
+                stopSelf();
+                return;
+            }
+            if (!hasInternet()) {
+                if (offlineSince == 0) offlineSince = now;
+                if (now - offlineSince >= OFFLINE_GRACE_MS) {
+                    // Sem internet prolongada: para de capturar ate a proxima ativacao autorizada.
+                    stopSelf();
+                    return;
+                }
+            } else {
+                offlineSince = 0;
+            }
+            watchdog.postDelayed(this, WATCHDOG_INTERVAL_MS);
+        }
+    };
     private String userId;
     private String journeyId;
     private LocationManager manager;
@@ -76,6 +105,9 @@ public final class JapanFlowGpsService extends Service implements LocationListen
         userId = nextUser;
         journeyId = nextJourney;
         startedAt = System.currentTimeMillis();
+        offlineSince = 0;
+        watchdog.removeCallbacks(watchdogTask);
+        watchdog.postDelayed(watchdogTask, WATCHDOG_INTERVAL_MS);
         FirebaseFirestore store = FirebaseFirestore.getInstance();
         sessionRef = store.collection("motoboy_live_sessions").document(userId);
         sessionRef.get().addOnSuccessListener(snapshot -> {
@@ -182,6 +214,8 @@ public final class JapanFlowGpsService extends Service implements LocationListen
     }
 
     private void cleanup() {
+        watchdog.removeCallbacks(watchdogTask);
+        offlineSince = 0;
         if (manager != null) {
             try { manager.removeUpdates(this); } catch (SecurityException ignored) { }
         }
