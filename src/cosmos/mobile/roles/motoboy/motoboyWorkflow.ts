@@ -7,6 +7,7 @@ import {
 } from './rideTransitionRecovery';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { uploadImage } from '@/lib/uploadImage';
+import { withRideOperationLock } from './rideOperationLock';
 
 // Mesma coleção e transições usadas em Departamental -> Motoboys.
 // A transação evita aceitar/finalizar registros já alterados por outro cliente.
@@ -40,15 +41,18 @@ async function confirmAfterTransportFailure(
 }
 
 export async function startRide(rideId: string, userId: string) {
+  return withRideOperationLock(rideId, async () => {
   try {
     await rideTransition({ action: 'start', rideId });
   } catch (error) {
     if (await confirmAfterTransportFailure(error, 'start', rideId, userId)) return;
     throw error;
   }
+  });
 }
 
 export async function finishRide(rideId: string, userId: string, file: File) {
+  return withRideOperationLock(rideId, async () => {
   if (!file.type.startsWith('image/'))
     throw new Error('Envie uma foto válida da notinha assinada.');
   if (file.size > 12 * 1024 * 1024) throw new Error('A foto deve ter no máximo 12 MB.');
@@ -66,6 +70,7 @@ export async function finishRide(rideId: string, userId: string, file: File) {
     if (await confirmAfterTransportFailure(error, 'finish', rideId, userId, publicUrl)) return;
     throw error;
   }
+  });
 }
 
 const sendOccurrence = httpsCallable<
