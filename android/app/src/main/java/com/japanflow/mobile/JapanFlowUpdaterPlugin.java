@@ -4,6 +4,8 @@ import android.app.DownloadManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.content.pm.PackageInfo;
+import android.content.pm.Signature;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
@@ -22,6 +24,10 @@ import com.getcapacitor.PluginMethod;
 
 import java.io.File;
 import java.util.Locale;
+import java.security.MessageDigest;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 
 @CapacitorPlugin(name = "JapanFlowUpdater")
 public class JapanFlowUpdaterPlugin extends Plugin {
@@ -30,14 +36,78 @@ public class JapanFlowUpdaterPlugin extends Plugin {
     private File apkFile;
     private Runnable monitor;
 
+    @SuppressWarnings("deprecation")
+    private int signingFlags() {
+        return Build.VERSION.SDK_INT >= 28
+            ? PackageManager.GET_SIGNING_CERTIFICATES
+            : PackageManager.GET_SIGNATURES;
+    }
+
+    @SuppressWarnings("deprecation")
+    private List<String> getSigningFingerprint(PackageInfo info) throws Exception {
+        Signature[] signatures;
+
+        if (Build.VERSION.SDK_INT >= 28) {
+            signatures = info.signingInfo == null
+                ? null
+                : info.signingInfo.getApkContentsSigners();
+        } else {
+            signatures = info.signatures;
+        }
+
+        if (signatures == null || signatures.length == 0) {
+            throw new SecurityException("Missing signing certificate");
+        }
+
+        List<String> fingerprints = new ArrayList<>();
+
+        for (Signature signature : signatures) {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                .digest(signature.toByteArray());
+
+            StringBuilder hex = new StringBuilder();
+
+            for (byte b : digest) {
+                hex.append(String.format(Locale.ROOT, "%02x", b & 0xff));
+            }
+
+            fingerprints.add(hex.toString());
+        }
+
+        Collections.sort(fingerprints);
+        return fingerprints;
+    }
+
     @PluginMethod
     public void getVersion(PluginCall call) {
         try {
             JSObject out = new JSObject();
             android.content.pm.PackageInfo info = getContext().getPackageManager()
-                    .getPackageInfo(getContext().getPackageName(), 0);
+                    .getPackageInfo(getContext().getPackageName(), signingFlags());
             out.put("version", info.versionName == null ? "0.0.0" : info.versionName);
             out.put("versionCode", Build.VERSION.SDK_INT >= 28 ? info.getLongVersionCode() : info.versionCode);
+            List<String> fingerprints = getSigningFingerprint(info);
+            String fingerprint = fingerprints.get(0);
+
+            String releaseCertificate =
+                "ee61bb1ba2ba54de6af82eae80468c37577d0d8c2d4fdbd714fa89ec91e0f1e0";
+
+            String debugCertificate =
+                "fbf66650a15a20cd38bcf029d3813cea6999b2029118dfd75e54e6bffe44ba16";
+
+            String signingChannel = "unknown";
+
+            if (fingerprints.size() == 1) {
+                if (releaseCertificate.equals(fingerprint)) {
+                    signingChannel = "release";
+                } else if (debugCertificate.equals(fingerprint)) {
+                    signingChannel = "legacy-debug";
+                }
+            }
+
+            out.put("signingFingerprint", fingerprint);
+            out.put("signingChannel", signingChannel);
+
             call.resolve(out);
         } catch (Exception e) { call.reject("Não foi possível identificar a versão", e); }
     }
@@ -99,11 +169,21 @@ public class JapanFlowUpdaterPlugin extends Plugin {
         }
         try {
             PackageManager pm = getContext().getPackageManager();
-            android.content.pm.PackageInfo candidate = pm.getPackageArchiveInfo(apkFile.getAbsolutePath(), 0);
-            android.content.pm.PackageInfo current = pm.getPackageInfo(getContext().getPackageName(), 0);
+            android.content.pm.PackageInfo candidate = pm.getPackageArchiveInfo(apkFile.getAbsolutePath(), signingFlags());
+            android.content.pm.PackageInfo current = pm.getPackageInfo(getContext().getPackageName(), signingFlags());
             if (candidate == null || !getContext().getPackageName().equals(candidate.packageName)) {
                 call.reject("O APK não pertence ao JapanFlow"); return;
             }
+            if (!getSigningFingerprint(candidate).equals(
+                    getSigningFingerprint(current))) {
+                call.reject(
+                    "APK_SIGNING_MISMATCH: "
+                    + "A assinatura da atualizacao nao corresponde "
+                    + "ao aplicativo instalado."
+                );
+                return;
+            }
+
             long candidateCode = Build.VERSION.SDK_INT >= 28 ? candidate.getLongVersionCode() : candidate.versionCode;
             long currentCode = Build.VERSION.SDK_INT >= 28 ? current.getLongVersionCode() : current.versionCode;
             if (candidateCode <= currentCode) {

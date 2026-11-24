@@ -6,7 +6,12 @@ export type DownloadProgress = {
   message: string;
 };
 interface UpdaterPlugin {
-  getVersion(): Promise<{ version: string; versionCode: number }>;
+  getVersion(): Promise<{
+    version: string;
+    versionCode: number;
+    signingFingerprint?: string;
+    signingChannel?: 'release' | 'legacy-debug' | 'unknown';
+  }>;
   downloadApk(options: { url: string }): Promise<void>;
   installApk(): Promise<void>;
   addListener(
