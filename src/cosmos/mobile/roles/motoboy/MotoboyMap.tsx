@@ -5,6 +5,7 @@ import app from '@/lib/firebase';
 import type { Ride } from './useMotoboyRides';
 import { subscribeNativePosition } from './nativeLocation';
 import storePin from '@/assets/japanflow-store-pin.png';
+import { loadJapanFlowGoogleMaps } from '@/lib/googleMapsLoader';
 
 // API JavaScript do Google Maps: chave pública RESTRITA a Maps JavaScript API e origens permitidas.
 // Nunca utilizar GOOGLE_MAPS_SERVER_KEY no navegador ou no APK.
@@ -51,7 +52,6 @@ declare global {
   }
 }
 const CITY_CENTER: Geo = { lat: -23.1896, lng: -45.8841 }; // Referência regional; não representa a loja.
-let loading: Promise<GoogleMaps> | null = null;
 const placeLocationCache = new Map<string, Geo>();
 const routeFunction = httpsCallable<
   { action: string; rideId: string },
@@ -81,26 +81,6 @@ function decodePolyline(encoded: string): Geo[] {
   }
   return result;
 }
-function loadMaps(key: string): Promise<GoogleMaps> {
-  if (window.google?.maps?.Map) return Promise.resolve(window.google.maps);
-  if (loading) return loading;
-  loading = new Promise<GoogleMaps>((resolve, reject) => {
-    const script = document.createElement('script');
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&v=weekly&loading=async`;
-    script.async = true;
-    script.onload = () =>
-      window.google?.maps?.Map
-        ? resolve(window.google.maps)
-        : reject(new Error('Google Maps indisponível'));
-    script.onerror = () =>
-      reject(new Error('Falha ao carregar o Google Maps. Verifique a chave e suas restrições.'));
-    document.head.appendChild(script);
-  }).catch((error) => {
-    loading = null;
-    throw error;
-  });
-  return loading;
-}
 export default function MotoboyMap({ rides = [] }: { rides?: Ride[] }) {
   const container = useRef<HTMLDivElement>(null);
   const instance = useRef<GoogleMap | null>(null);
@@ -108,6 +88,8 @@ export default function MotoboyMap({ rides = [] }: { rides?: Ride[] }) {
   const directionLayer = useRef<GooglePolyline | null>(null);
   const [error, setError] = useState('');
   const [loaded, setLoaded] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  const [mapError, setMapError] = useState('');
   const [placeLocations, setPlaceLocations] = useState<Record<string, Geo>>({});
   const [resolvedOrigin, setResolvedOrigin] = useState<Geo | null>(null);
   const [position, setPosition] = useState<Geo | null>(null);
@@ -122,12 +104,14 @@ export default function MotoboyMap({ rides = [] }: { rides?: Ride[] }) {
     [hasOrigin, storeLat, storeLng]
   );
   useEffect(() => {
+    setLoaded(false);
+    setMapError('');
     if (!key || !container.current) {
-      setError('O mapa Google aguarda a chave de exibição VITE_GOOGLE_MAPS_BROWSER_KEY.');
+      setMapError('O mapa Google aguarda a chave de exibição VITE_GOOGLE_MAPS_BROWSER_KEY.');
       return;
     }
     let disposed = false;
-    loadMaps(key)
+    loadJapanFlowGoogleMaps<GoogleMaps>(key)
       .then((maps) => {
         if (disposed || !container.current) return;
         instance.current = new maps.Map(container.current, {
@@ -143,7 +127,7 @@ export default function MotoboyMap({ rides = [] }: { rides?: Ride[] }) {
         setError('');
       })
       .catch((cause) => {
-        if (!disposed) setError(cause instanceof Error ? cause.message : 'Mapa indisponível');
+        if (!disposed) setMapError(cause instanceof Error ? cause.message : 'Mapa indisponível');
       });
     return () => {
       disposed = true;
@@ -155,7 +139,7 @@ export default function MotoboyMap({ rides = [] }: { rides?: Ride[] }) {
     };
     // O mapa é instanciado uma vez por montagem; marcadores atualizam no efeito abaixo.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+  }, [key, attempt]);
   useEffect(() => {
     if (!loaded || !window.google?.maps?.Geocoder) return;
     let canceled = false;
@@ -315,9 +299,28 @@ export default function MotoboyMap({ rides = [] }: { rides?: Ride[] }) {
     );
   };
   return (
-    <div className="jf-moto-map jf-google-map-wrap">
-      <div ref={container} className="jf-moto-map-layer" aria-label="Mapa Google de entregas" />
-      {error && (
+    <div
+      className="jf-moto-map jf-google-map-wrap"
+      style={{ position: 'relative', height: '100%', width: '100%' }}
+    >
+      <div
+        ref={container}
+        className="jf-moto-map-layer"
+        style={{ position: 'absolute', inset: 0, height: '100%', width: '100%' }}
+        aria-label="Mapa Google de entregas"
+      />
+      {!loaded && (
+        <div className="jf-google-map-warning" role="status">
+          <MapPin size={17} />
+          <span>{mapError || 'Carregando Google Maps…'}</span>
+          {mapError && (
+            <button type="button" onClick={() => setAttempt((n) => n + 1)}>
+              Tentar novamente
+            </button>
+          )}
+        </div>
+      )}
+      {loaded && error && (
         <div className="jf-google-map-warning" role="status">
           <MapPin size={17} />
           <span>{error}</span>

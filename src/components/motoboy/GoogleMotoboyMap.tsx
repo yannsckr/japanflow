@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { Button } from '@/components/ui/button';
+import { loadJapanFlowGoogleMaps } from '@/lib/googleMapsLoader';
 import { MapPin, RefreshCcw, Maximize2, Minimize2 } from 'lucide-react';
 
 type Rider = { id: string; name: string };
@@ -19,29 +20,14 @@ type MarkerInstance = {
 type MapsApi = {
   Map: new (element: HTMLElement, options: Record<string, unknown>) => MapInstance;
   Marker: new (options: Record<string, unknown>) => MarkerInstance;
+  event?: {
+    addListenerOnce: (
+      target: MapInstance,
+      name: string,
+      callback: () => void
+    ) => { remove: () => void };
+  };
 };
-
-const googleApi = () => (window as unknown as { google?: { maps: MapsApi } }).google?.maps;
-let mapsLoad: Promise<MapsApi> | null = null;
-function loadGoogleMaps(key: string): Promise<MapsApi> {
-  if (googleApi()?.Map) return Promise.resolve(googleApi()!);
-  if (mapsLoad) return mapsLoad;
-  mapsLoad = new Promise<MapsApi>((resolve, reject) => {
-    const script = document.createElement('script');
-    script.async = true;
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&v=weekly`;
-    script.onload = () => {
-      if (googleApi()?.Map) resolve(googleApi()!);
-      else reject(new Error('Google Maps não inicializou.'));
-    };
-    script.onerror = () => reject(new Error('Não foi possível carregar a API do Google Maps.'));
-    document.head.appendChild(script);
-  }).catch((error: unknown) => {
-    mapsLoad = null;
-    throw error;
-  });
-  return mapsLoad;
-}
 
 function LiveMap({ point, label }: { point: Session; label: string }) {
   const host = useRef<HTMLDivElement>(null);
@@ -50,14 +36,21 @@ function LiveMap({ point, label }: { point: Session; label: string }) {
   const map = useRef<MapInstance | null>(null);
   const marker = useRef<MarkerInstance | null>(null);
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [attempt, setAttempt] = useState(0);
   const key = import.meta.env.VITE_GOOGLE_MAPS_BROWSER_KEY as string | undefined;
   useEffect(() => {
+    setLoading(true);
+    setError('');
     if (!key) {
+      setLoading(false);
       setError('Chave VITE_GOOGLE_MAPS_BROWSER_KEY não configurada.');
       return;
     }
     let cancelled = false;
-    loadGoogleMaps(key)
+    let tileTimer: number | undefined;
+    let tileListener: { remove: () => void } | undefined;
+    loadJapanFlowGoogleMaps<MapsApi>(key)
       .then((maps) => {
         if (cancelled || !host.current) return;
         const first = latest.current;
@@ -70,37 +63,72 @@ function LiveMap({ point, label }: { point: Session; label: string }) {
         });
         marker.current = new maps.Marker({ map: map.current, position: first, title: label });
         setError('');
+        if (maps.event?.addListenerOnce) {
+          tileListener = maps.event.addListenerOnce(map.current, 'tilesloaded', () => {
+            if (cancelled) return;
+            window.clearTimeout(tileTimer);
+            setLoading(false);
+            setError('');
+          });
+          tileTimer = window.setTimeout(() => {
+            if (cancelled) return;
+            setLoading(false);
+            setError('O mapa não confirmou o carregamento. Verifique a conexão e tente novamente.');
+          }, 15000);
+        } else {
+          setLoading(false);
+        }
       })
       .catch((err: unknown) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : 'Falha no Google Maps.');
+        if (!cancelled) {
+          setLoading(false);
+          setError(err instanceof Error ? err.message : 'Falha no Google Maps.');
+        }
       });
     return () => {
       cancelled = true;
+      window.clearTimeout(tileTimer);
+      tileListener?.remove();
       marker.current?.setMap(null);
       marker.current = null;
       map.current = null;
     };
     // O mapa é criado uma vez; atualizações de posição são tratadas abaixo.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+  }, [key, attempt]);
   useEffect(() => {
     const next = { lat: point.lat, lng: point.lng };
     marker.current?.setPosition(next);
     map.current?.panTo(next);
   }, [point.lat, point.lng]);
   return (
-    <div className="relative h-full min-h-[420px] w-full">
+    <div className="relative h-full min-h-[420px] w-full" style={{ minHeight: 420 }}>
       <div
         ref={host}
-        className="h-full min-h-[420px] w-full"
+        className="absolute inset-0 h-full w-full"
+        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
         aria-label={`Mapa em tempo real de ${label}`}
       />
-      {error && (
+      {(loading || error) && (
         <div
-          role="alert"
-          className="absolute inset-0 flex items-center justify-center bg-background/95 p-6 text-center text-sm text-destructive"
+          role="status"
+          className={
+            loading
+              ? 'absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-background/95 p-6 text-center text-sm'
+              : 'absolute inset-x-3 bottom-3 z-10 flex flex-col items-center justify-center gap-2 rounded-lg border bg-background/95 p-3 text-center text-sm'
+          }
         >
-          {error}
+          <p>{loading ? 'Carregando Google Maps…' : error}</p>
+          {!loading && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => setAttempt((n) => n + 1)}
+            >
+              Tentar novamente
+            </Button>
+          )}
         </div>
       )}
     </div>
@@ -124,6 +152,7 @@ export default function GoogleMotoboyMap({
   const [error, setError] = useState('');
   const [focusId, setFocusId] = useState('');
   const [fullscreen, setFullscreen] = useState(false);
+  const [mapRevision, setMapRevision] = useState(0);
   const [clock, setClock] = useState(() => Date.now());
   useEffect(() => {
     const timer = window.setInterval(() => setClock(Date.now()), 15000);
@@ -209,6 +238,15 @@ export default function GoogleMotoboyMap({
           variant="outline"
           size="sm"
           className="gap-1"
+          onClick={() => setMapRevision((n) => n + 1)}
+        >
+          <RefreshCcw className="h-4 w-4" /> Recarregar mapa
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="gap-1"
           onClick={() => setFullscreen((v) => !v)}
         >
           {fullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
@@ -243,9 +281,13 @@ export default function GoogleMotoboyMap({
           GPS sem atualização recente · exibindo última posição conhecida
         </p>
       )}
-      <div className="min-h-0 flex-1 overflow-hidden">
+      <div className="min-h-[420px] flex-1 overflow-hidden">
         {session ? (
-          <LiveMap key={session.userId} point={session} label={name} />
+          <LiveMap
+            key={`${session.userId}:${mapRevision}:${fullscreen}`}
+            point={session}
+            label={name}
+          />
         ) : (
           <div className="flex h-full min-h-[420px] flex-col items-center justify-center gap-2 bg-muted/20 p-5 text-center">
             <MapPin className="h-7 w-7 text-primary" />
