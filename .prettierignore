@@ -11,3 +11,7 @@ android/app/build/
 android/build/
 dist-android/
 apk-local/
+
+# JapanFlow local backups
+.japanflow-backups/
+local-backups/

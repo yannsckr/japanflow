@@ -120,3 +120,6 @@ desktop.ini
 *service-account*.json
 *serviceAccount*.json
 google-services.json
+
+# JapanFlow local backups
+.japanflow-backups/

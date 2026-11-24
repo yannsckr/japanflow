@@ -377,7 +377,7 @@ export default function MotoboyExperience({ initialScreen = 'home' }: { initialS
       setScreen('rides');
       toast.info('Entrega removida ou transferida. Lista atualizada.');
     }
-  }, [selectedId, rides.all, rides.loading, rides.error, screen]);
+  }, [selectedId, rides.all, rides.loading, rides.serverConfirmed, rides.error, screen]);
   const open = (r: Ride) => {
     setSelectedId(r.id);
     setScreen('detail');

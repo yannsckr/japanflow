@@ -8,6 +8,7 @@ import {
   Clock3,
   Coffee,
   Gauge,
+  ImagePlus,
   LogOut,
   ShieldCheck,
 } from 'lucide-react';
@@ -126,11 +127,12 @@ export default function MotoboyJourneyManager({
     };
   }, [shouldShowPhoto]);
 
-  const takeOdometerPhoto = async () => {
+  const takeOdometerPhoto = async (source: CameraSource = CameraSource.Camera) => {
+    if (cameraBusy || busy) return;
     setCameraBusy(true);
     try {
       const shot = await Camera.getPhoto({
-        source: CameraSource.Camera,
+        source,
         resultType: CameraResultType.Uri,
         quality: 82,
         allowEditing: false,
@@ -139,14 +141,15 @@ export default function MotoboyJourneyManager({
       const response = await fetch(shot.webPath);
       if (!response.ok) throw new Error('Falha ao ler a foto capturada');
       const blob = await response.blob();
-      const mime = blob.type === 'image/png' ? 'image/png' : 'image/jpeg';
-      const file = new File(
-        [blob],
-        `odometro-${Date.now()}.${mime === 'image/png' ? 'png' : 'jpg'}`,
-        { type: mime }
-      );
-      if (file.size > 8 * 1024 * 1024) {
-        toast.error('Foto acima de 8 MB. Tire outra foto.');
+      const mime = blob.type;
+      if (!/^image\/(jpeg|png|webp)$/.test(mime)) {
+        toast.error('Selecione uma imagem JPG, PNG ou WebP.');
+        return;
+      }
+      const extension = mime === 'image/png' ? 'png' : mime === 'image/webp' ? 'webp' : 'jpg';
+      const file = new File([blob], `odometro-${Date.now()}.${extension}`, { type: mime });
+      if (file.size === 0 || file.size > 8 * 1024 * 1024) {
+        toast.error('Selecione uma imagem válida de até 8 MB.');
         return;
       }
       setPhoto(file);
@@ -154,7 +157,11 @@ export default function MotoboyJourneyManager({
       const message = error instanceof Error ? error.message : String(error);
       if (!/cancel|cancelad|user cancelled|user canceled/i.test(message)) {
         console.error('[motoboyJourney] camera', error);
-        toast.error('Não foi possível tirar a foto.');
+        toast.error(
+          source === CameraSource.Photos
+            ? 'Não foi possível carregar a imagem.'
+            : 'Não foi possível tirar a foto.'
+        );
       }
     } finally {
       setCameraBusy(false);
@@ -163,7 +170,7 @@ export default function MotoboyJourneyManager({
 
   const submitOdometer = async () => {
     if (!photo || !/^image\/(jpeg|png|webp)$/.test(photo.type) || photo.size > 8 * 1024 * 1024) {
-      toast.error('Tire uma foto JPG, PNG ou WebP de até 8 MB.');
+      toast.error('Adicione uma imagem JPG, PNG ou WebP de até 8 MB.');
       return;
     }
     if (!reading.trim() || !Number.isFinite(currentOdometer) || currentOdometer < 0) {
@@ -286,23 +293,41 @@ export default function MotoboyJourneyManager({
             )}
             <div className="space-y-2">
               <span className="block text-sm font-medium">Foto do odômetro *</span>
-              <button
-                type="button"
-                disabled={busy || cameraBusy}
-                className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl border border-border bg-muted/40 px-4 py-3 text-sm font-semibold transition-colors hover:bg-muted/70 active:scale-[0.99]"
-                onClick={takeOdometerPhoto}
-              >
-                {photo ? (
-                  <Check size={18} className="text-emerald-600" />
-                ) : (
-                  <CameraIcon size={18} className="text-primary" />
-                )}
-                {cameraBusy
-                  ? 'Abrindo câmera…'
-                  : photo
-                    ? 'Foto registrada · Tirar outra'
-                    : 'Tirar foto'}
-              </button>
+
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  disabled={busy || cameraBusy}
+                  className="flex min-h-20 flex-col items-center justify-center gap-2 rounded-xl border border-border bg-muted/40 px-3 py-3 text-xs font-semibold transition-colors hover:bg-muted/70 disabled:opacity-50"
+                  onClick={() => void takeOdometerPhoto(CameraSource.Camera)}
+                >
+                  <CameraIcon size={23} className="text-primary" />
+                  Tirar foto
+                </button>
+
+                <button
+                  type="button"
+                  disabled={busy || cameraBusy}
+                  className="flex min-h-20 flex-col items-center justify-center gap-2 rounded-xl border border-border bg-muted/40 px-3 py-3 text-xs font-semibold transition-colors hover:bg-muted/70 disabled:opacity-50"
+                  onClick={() => void takeOdometerPhoto(CameraSource.Photos)}
+                >
+                  <ImagePlus size={23} className="text-primary" />
+                  Carregar imagem
+                </button>
+              </div>
+
+              {cameraBusy ? (
+                <p role="status" className="text-xs text-muted-foreground">
+                  Aguardando imagem...
+                </p>
+              ) : photo ? (
+                <p role="status" className="flex items-center gap-2 text-xs text-emerald-600">
+                  <Check size={15} />
+                  Imagem selecionada com sucesso
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground">JPG, PNG ou WebP de até 8 MB.</p>
+              )}
             </div>
             <label className="block space-y-2 text-sm font-medium">
               <span>Quilometragem *</span>
@@ -321,7 +346,7 @@ export default function MotoboyJourneyManager({
                 <button
                   type="button"
                   className="min-h-12 flex-1 rounded-xl border border-border px-4 text-sm font-medium"
-                  disabled={busy}
+                  disabled={busy || cameraBusy}
                   onClick={() => {
                     setEndOpen(false);
                     setReading('');
@@ -336,6 +361,7 @@ export default function MotoboyJourneyManager({
                 className="min-h-12 flex-1 rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground transition-opacity disabled:opacity-50"
                 disabled={
                   busy ||
+                  cameraBusy ||
                   !loaded ||
                   !photo ||
                   !reading.trim() ||
