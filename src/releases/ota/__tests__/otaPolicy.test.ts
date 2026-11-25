@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   canApplyOta,
+  canApplyOtaPilot,
   canDownloadOta,
   isIdleAtStore,
   isEligibleForOta,
@@ -289,4 +290,10 @@ describe('JapanFlow OTA eligibility', () => {
       })
     ).toBe(false);
   });
+});
+
+it('pilot only allows closed journeys', () => {
+  expect(canApplyOtaPilot(safe)).toBe(true);
+  expect(canApplyOtaPilot(idleAtStore)).toBe(false);
+  expect(canApplyOtaPilot({ ...safe, pendingWrites: 1 })).toBe(false);
 });

@@ -6,7 +6,7 @@ import { failedOtaSequences } from './otaFailureHistory';
 import { createOtaOrchestrator } from './otaOrchestrator';
 import { fetchDistributedOtaReleases } from './otaDistributionApi';
 import { distributeOta, OTA_DISTRIBUTION_ENABLED } from './otaDistribution';
-import { canDownloadOta, type OtaOperationalState } from './otaPolicy';
+import { canApplyOtaPilot, type OtaOperationalState } from './otaPolicy';
 import { isValidBundleVersion } from './otaManifest';
 export function useOtaAutomaticUpdate(
   userId: string | undefined,
@@ -31,7 +31,8 @@ export function useOtaAutomaticUpdate(
           !sequence ||
           !failed ||
           sequence.pendingSequence !== 0 ||
-          native.signingChannel !== 'release'
+          native.signingChannel !== 'release' ||
+          native.versionCode < 19
         )
           return null;
         const version =
@@ -53,7 +54,7 @@ export function useOtaAutomaticUpdate(
       if (disposed || active.current || !userId) return;
       active.current = true;
       try {
-        if (!canDownloadOta(await getOperationalState()) || disposed) return;
+        if (!canApplyOtaPilot(await getOperationalState()) || disposed) return;
         const result = await orchestrator.check();
         if (disposed || result.status !== 'available') return;
         await distributeOta(result.release, {

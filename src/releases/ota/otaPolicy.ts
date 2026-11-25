@@ -107,3 +107,8 @@ export function isEligibleForOta(
     (release.targetUserIds.length === 0 || release.targetUserIds.includes(device.userId))
   );
 }
+
+// V48.1 pilot only: do not interrupt an open journey, even at the store.
+export function canApplyOtaPilot(state: OtaOperationalState): boolean {
+  return state.journeyOpen === false && canApplyOta(state);
+}

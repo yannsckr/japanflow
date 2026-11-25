@@ -4,19 +4,15 @@ import { getNativeSequenceState, canAttemptNativeSequence } from './otaNativeSeq
 import { CapacitorUpdater } from '@capgo/capacitor-updater';
 import { acquireUpdateLock } from '@/lib/operationalLock';
 import { readActivationJournal, writeActivationJournal } from './otaActivationJournal';
-import { reserveNativeActivation } from './otaActivationBridge';
+import { fetchDistributedOtaReleases } from './otaDistributionApi';
+import { canonicalPayload } from './otaSecurity';
 import { nativeUpdater } from '../nativeUpdater';
 import { isOtaSupported } from './otaEngine';
-import {
-  canApplyOta,
-  canDownloadOta,
-  isEligibleForOta,
-  type OtaOperationalState,
-} from './otaPolicy';
+import { canApplyOtaPilot, isEligibleForOta, type OtaOperationalState } from './otaPolicy';
 import type { SignedOtaRelease } from './otaSecurity';
 import { verifyNativeOtaRelease } from './otaNativeSecurity';
 
-export const OTA_DISTRIBUTION_ENABLED = false;
+export const OTA_DISTRIBUTION_ENABLED = true;
 
 let running = false;
 
@@ -46,7 +42,12 @@ export async function distributeOta(
 
     const native = await nativeUpdater.getVersion();
 
-    if (native.signingChannel !== 'release') {
+    if (
+      native.signingChannel !== 'release' ||
+      native.versionCode < 19 ||
+      release.manifest.channel !== 'beta' ||
+      release.manifest.minNativeCode < 19
+    ) {
       return false;
     }
 
@@ -68,7 +69,7 @@ export async function distributeOta(
 
     const beforeDownload = await context.getOperationalState();
 
-    if (!canDownloadOta(beforeDownload)) {
+    if (!canApplyOtaPilot(beforeDownload)) {
       return false;
     }
 
@@ -81,12 +82,15 @@ export async function distributeOta(
     });
     context.onProgress?.(0);
     recordOtaDiagnostic('download-start');
-    const bundle = await CapacitorUpdater.download({
+    const downloadOptions = {
+      payload: canonicalPayload(release),
+      signature: release.signature,
       url: release.downloadUrl,
       version: release.manifest.bundleVersion,
       checksum: release.protectedBundle.checksum,
       sessionKey: release.protectedBundle.sessionKey,
-    });
+    };
+    const bundle = await CapacitorUpdater.download(downloadOptions);
 
     if (!bundle.checksum || bundle.checksum.toLowerCase() !== release.manifest.sha256) {
       throw new Error('OTA checksum mismatch');
@@ -103,7 +107,7 @@ export async function distributeOta(
     unlock = acquireUpdateLock();
     if (!unlock) return false;
     const beforeApply = await context.getOperationalState();
-    if (!canApplyOta(beforeApply)) return false;
+    if (!canApplyOtaPilot(beforeApply)) return false;
     const journal = readActivationJournal();
     if (!journal.known || journal.record?.status === 'activating') return false;
     if (!(await verifyNativeOtaRelease(release))) return false;
@@ -116,18 +120,33 @@ export async function distributeOta(
       status: 'activating' as const,
       updatedAt: Date.now(),
     };
+    // Recheck remote authorization and revocation after download, before activation.
+    const fresh = (await fetchDistributedOtaReleases(native.versionCode)).find(
+      (item) =>
+        item.sequence === release.sequence &&
+        item.manifest.sha256 === release.manifest.sha256 &&
+        item.manifest.bundleVersion === release.manifest.bundleVersion
+    );
+    if (!fresh || !(await verifyNativeOtaRelease(fresh)) || !isEligibleForOta(fresh, device))
+      return false;
+    if (!canApplyOtaPilot(await context.getOperationalState())) return false;
     writeActivationJournal(record);
-    if (!(await reserveNativeActivation(release, bundle.id))) {
-      writeActivationJournal({ ...record, status: 'failed', updatedAt: Date.now() });
-      return false;
-    }
-    // A failed or interrupted set is reconciled on the next startup.
-    if (!canApplyOta(await context.getOperationalState())) {
-      // Leave the reservation pending for startup reconciliation. Never activate an unsafe bundle.
-      return false;
-    }
     recordOtaDiagnostic('activation-requested');
-    await CapacitorUpdater.set({ id: bundle.id });
+    const activationOptions = {
+      id: bundle.id,
+      payload: canonicalPayload(fresh),
+      signature: fresh.signature,
+    };
+    // The patched native set() verifies and reserves the real bundle atomically.
+    try {
+      await CapacitorUpdater.set(activationOptions);
+    } catch (error) {
+      const after = await getNativeSequenceState();
+      if (after && after.pendingSequence === 0 && after.acceptedSequence < release.sequence) {
+        writeActivationJournal({ ...record, status: 'failed', updatedAt: Date.now() });
+      }
+      throw error;
+    }
     return true;
   } finally {
     try {

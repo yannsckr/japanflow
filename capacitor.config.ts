@@ -11,6 +11,10 @@ const config: CapacitorConfig = {
     CapacitorUpdater: {
       publicKey: OTA_CAPGO_PUBLIC_KEY,
       autoUpdate: false,
+      allowPreview: false,
+      allowModifyUrl: false,
+      shakeMenu: false,
+      allowShakeChannelSelector: false,
       appReadyTimeout: 30000,
       autoDeleteFailed: true,
       autoDeletePrevious: false,

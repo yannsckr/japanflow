@@ -1,3 +1,4 @@
+import { confirmOtaPilotStartup } from '@/releases/ota/components/otaPilotStartup';
 import { useOtaOperationalState } from '@/releases/ota/useOtaOperationalState';
 import { useOtaAutomaticUpdate } from '@/releases/ota/useOtaAutomaticUpdate';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
@@ -517,6 +518,20 @@ export default function MotoboyExperience({ initialScreen = 'home' }: { initialS
   });
 
   const otaProgress = useOtaAutomaticUpdate(currentUser?.id, otaState.getOperationalState);
+
+  useEffect(() => {
+    if (!currentUser?.id || !rides.serverConfirmed || rides.loading || rides.error) return;
+    let disposed = false;
+    const check = async () => {
+      if (!disposed && (await confirmOtaPilotStartup(true))) window.clearInterval(timer);
+    };
+    const timer = window.setInterval(() => void check(), 1000);
+    void check();
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+    };
+  }, [currentUser?.id, rides.serverConfirmed, rides.loading, rides.error]);
 
   useEffect(() => {
     document.documentElement.dataset.otaReadiness = otaState.readiness;

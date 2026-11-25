@@ -30,6 +30,7 @@
     "native:build": "vite build --base ./ && node scripts/write-version.mjs",
     "cosmos:desktop:dev": "vite --config vite.native.config.ts --port 8081",
     "cosmos:desktop:build": "vite build --config vite.native.config.ts && node scripts/finalize-cosmos-build.mjs",
+    "precosmos:android:build": "node scripts/patch-capgo-v48.cjs",
     "cosmos:android:build": "cross-env JAPANFLOW_NATIVE_TARGET=android vite build --config vite.native.config.ts && node scripts/finalize-cosmos-build.mjs --android",
     "cosmos:android:sync": "npm run cosmos:android:build && cap sync android",
     "apk:debug": "node scripts/build-apk-debug.mjs"
