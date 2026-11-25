@@ -26,7 +26,7 @@
     "qa:batch3": "playwright test qa/tests/crud-controlled.spec.ts --project=desktop-chromium",
     "qa:gate": "tsc --noEmit && vite build && playwright test qa/tests/smoke.spec.ts qa/tests/functional-core.spec.ts qa/tests/navigation.spec.ts qa/tests/crud-controlled.spec.ts --project=desktop-chromium && playwright test qa/tests/responsive.spec.ts qa/tests/mobile-full.spec.ts --project=mobile-chromium",
     "validar": "npm run format && npm run format:check && npm run typecheck && npm run lint && npm run build",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc -p tsconfig.app.json --noEmit",
     "native:build": "vite build --base ./ && node scripts/write-version.mjs",
     "cosmos:desktop:dev": "vite --config vite.native.config.ts --port 8081",
     "cosmos:desktop:build": "vite build --config vite.native.config.ts && node scripts/finalize-cosmos-build.mjs",
