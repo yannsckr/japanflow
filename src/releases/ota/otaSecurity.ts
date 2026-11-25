@@ -14,6 +14,8 @@ export interface SignedOtaRelease {
   targetUserIds: string[];
   signature: string;
   protectedBundle?: ProtectedBundleMetadata;
+  protectedStoragePath?: string;
+  protectedGeneration?: string;
 }
 
 export function canonicalPayload(release: SignedOtaRelease): string {
@@ -42,7 +44,12 @@ export function canonicalPayload(release: SignedOtaRelease): string {
 
   if (release.protectedBundle !== undefined) {
     payload[0] = 'japanflow-ota-v2';
-    return JSON.stringify([...payload, protectedPayload(release.protectedBundle)]);
+    return JSON.stringify([
+      ...payload,
+      protectedPayload(release.protectedBundle),
+      release.protectedStoragePath,
+      release.protectedGeneration,
+    ]);
   }
 
   return JSON.stringify(payload);
@@ -87,6 +94,32 @@ export function isTrustedDownloadUrl(value: string, storagePath: string): boolea
   }
 }
 
+export function isTrustedProtectedUrl(release: SignedOtaRelease): boolean {
+  try {
+    const path = release.protectedStoragePath;
+    const generation = release.protectedGeneration;
+    if (
+      typeof path !== 'string' ||
+      !/^japanflow\/ota-protected\/[A-Za-z0-9_-]{1,128}\/[a-f0-9-]{36}\.bundle$/.test(path) ||
+      typeof generation !== 'string' ||
+      !/^[0-9]+$/.test(generation) ||
+      !release.protectedBundle ||
+      release.protectedBundle.encryptedSizeBytes !==
+        (Math.floor(release.manifest.sizeBytes / 16) + 1) * 16
+    )
+      return false;
+    const url = new URL(release.downloadUrl);
+    return (
+      url.hostname === 'storage.googleapis.com' &&
+      isTrustedDownloadUrl(release.downloadUrl, path) &&
+      url.searchParams.getAll('generation').length === 1 &&
+      url.searchParams.get('generation') === generation
+    );
+  } catch {
+    return false;
+  }
+}
+
 export async function verifySignedRelease(
   release: SignedOtaRelease,
   publicKey = OTA_PUBLIC_KEY
@@ -104,7 +137,9 @@ export async function verifySignedRelease(
       !Array.isArray(release.targetUserIds) ||
       release.targetUserIds.length > 250 ||
       !release.targetUserIds.every((id) => typeof id === 'string' && id.length > 0) ||
-      !isTrustedDownloadUrl(release.downloadUrl, release.manifest.storagePath)
+      !(release.protectedBundle !== undefined
+        ? isTrustedProtectedUrl(release)
+        : isTrustedDownloadUrl(release.downloadUrl, release.manifest.storagePath))
     )
       return false;
 

@@ -243,6 +243,10 @@ service firebase.storage {
     // Caminho novo da marca JapanFlow. Caminho antigo preservado para compatibilidade.
 
     // JapanFlow OTA: immutable administrative uploads.
+    match /japanflow/ota-protected/{allPaths=**} {
+      allow read, write: if false;
+    }
+
     match /japanflow/ota/{userId}/{fileName} {
       allow read: if canPublishCosmosApk();
 

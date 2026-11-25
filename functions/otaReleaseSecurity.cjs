@@ -83,6 +83,8 @@ function canonicalPayload(release) {
     return JSON.stringify([
       ...payload,
       protectedPayload(release.protectedBundle),
+      release.protectedStoragePath,
+      release.protectedGeneration,
     ]);
   }
 

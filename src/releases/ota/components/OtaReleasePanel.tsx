@@ -1,3 +1,4 @@
+import { revokeOtaRelease } from '../otaRevocationApi';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Zap, Package, Lock } from 'lucide-react';
 import { toast } from 'sonner';
@@ -92,6 +93,26 @@ export default function OtaReleasePanel({ userId }: { userId: string }) {
       if (fileInput.current) fileInput.current.value = '';
     } catch (reason) {
       toast.error(reason instanceof Error ? reason.message : 'Falha ao preparar pacote OTA.');
+    } finally {
+      submitting.current = false;
+      setBusy(false);
+    }
+  }
+
+  async function revokeRelease(release: OtaRelease) {
+    if (
+      submitting.current ||
+      busy ||
+      !window.confirm('Revogar esta release? Novas entregas do pacote serao bloqueadas.')
+    )
+      return;
+    submitting.current = true;
+    setBusy(true);
+    try {
+      await revokeOtaRelease(release.id);
+      toast.success('Release revogada.');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Falha ao revogar release.');
     } finally {
       submitting.current = false;
       setBusy(false);
@@ -271,6 +292,16 @@ export default function OtaReleasePanel({ userId }: { userId: string }) {
                   </Button>
                 </div>
               </div>
+            )}
+            {release.status === 'published' && (
+              <Button
+                type="button"
+                variant="outline"
+                disabled={busy}
+                onClick={() => void revokeRelease(release)}
+              >
+                Revogar release
+              </Button>
             )}
             <span className="rounded-md border px-3 py-1 text-xs">
               {release.status === 'draft' ? 'Rascunho' : release.status}

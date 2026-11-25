@@ -81,3 +81,5 @@ exports.japanflowValidateOtaPackage =
   require('./otaPackageValidation.cjs').japanflowValidateOtaPackage;
 
 exports.japanflowPublishOtaRelease = require('./otaPublication.cjs').japanflowPublishOtaRelease;
+
+exports.japanflowRevokeOtaRelease = require('./otaPublication.cjs').japanflowRevokeOtaRelease;

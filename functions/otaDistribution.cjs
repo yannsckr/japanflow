@@ -3,7 +3,8 @@ const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const { getFirestore } = require('firebase-admin/firestore');
 const { getStorage } = require('firebase-admin/storage');
 const { canReceiveRelease } = require('./otaReleaseSecurity.cjs');
-const { signer, verifyPublication, signDelivery } = require('./otaPublicationCore.cjs');
+const { signer } = require('./otaPublicationCore.cjs');
+const { verifyProtectedPublication, signProtectedDelivery } = require('./otaProtectedPublication.cjs');
 const { otaSigningKey } = require('./otaPublication.cjs');
 const trusted = require('./otaTrustedKey.cjs');
 const DISTRIBUTION_ENABLED = false;
@@ -23,10 +24,10 @@ exports.japanflowListOtaReleases=onCall({region:'southamerica-east1',enforceAppC
   for (const doc of snapshot.docs) {
     const p=doc.data();
     const expiresAt=Date.now()+15*60*1000;
-    if (!verifyPublication(p,trusted) || !canReceiveRelease({...p,expiresAt},link.user_id,nativeCode)) continue;
-    const file=getStorage().bucket('japanflow-erp.firebasestorage.app').file(p.manifest.storagePath,{generation:p.generation});
-    const [url]=await file.getSignedUrl({version:'v4',action:'read',expires:expiresAt,queryParams:{generation:p.generation}});
-    releases.push(signDelivery(p,url,expiresAt,sign));
+    if (!verifyProtectedPublication(p,trusted) || !canReceiveRelease({...p,expiresAt},link.user_id,nativeCode)) continue;
+    const file=getStorage().bucket('japanflow-erp.firebasestorage.app').file(p.protectedStoragePath,{generation:p.protectedGeneration});
+    const [url]=await file.getSignedUrl({version:'v4',action:'read',expires:expiresAt,queryParams:{generation:p.protectedGeneration}});
+    releases.push(signProtectedDelivery(p,url,expiresAt,sign));
     if (releases.length===10) break;
   }
   return {enabled:true,releases};
