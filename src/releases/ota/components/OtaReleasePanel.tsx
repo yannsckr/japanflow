@@ -6,6 +6,8 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { subscribeOtaReleases, type OtaRelease } from '../otaService';
 import { uploadOtaDraft, type OtaDraftInput } from '../otaUpload';
+import { validateOtaPackage } from '../otaPackageApi';
+import { publishOtaRelease } from '../otaPublicationApi';
 
 const initialForm: OtaDraftInput = {
   bundleVersion: '',
@@ -26,6 +28,39 @@ export default function OtaReleasePanel({ userId }: { userId: string }) {
   const [error, setError] = useState('');
   const fileInput = useRef<HTMLInputElement>(null);
   const submitting = useRef(false);
+  const [audiences, setAudiences] = useState<Record<string, string>>({});
+  const [checked, setChecked] = useState<Record<string, boolean>>({});
+  async function manageRelease(release: OtaRelease, action: 'validate' | 'publish') {
+    if (submitting.current || busy) return;
+    const ids = (audiences[release.id] ?? '').split(/[\s,;]+/).filter(Boolean);
+    if (action === 'publish') {
+      if (release.channel === 'beta' && !ids.length) {
+        toast.error('Informe os IDs dos motoboys beta.');
+        return;
+      }
+      if (!window.confirm('Registrar publicacao assinada? A distribuicao continua bloqueada.'))
+        return;
+    }
+    submitting.current = true;
+    setBusy(true);
+    try {
+      if (action === 'validate') {
+        const result = await validateOtaPackage(release.id);
+        if (result.sha256 !== release.sha256 || result.sizeBytes !== release.sizeBytes)
+          throw new Error('Pacote divergente');
+        setChecked((previous) => ({ ...previous, [release.id]: true }));
+        toast.success('Pacote validado.');
+      } else {
+        await publishOtaRelease(release.id, ids);
+        toast.success('Publicacao registrada. Distribuicao bloqueada.');
+      }
+    } catch (reason) {
+      toast.error(reason instanceof Error ? reason.message : 'Falha na operacao OTA.');
+    } finally {
+      submitting.current = false;
+      setBusy(false);
+    }
+  }
 
   useEffect(() => {
     return subscribeOtaReleases(
@@ -206,6 +241,37 @@ export default function OtaReleasePanel({ userId }: { userId: string }) {
                 SHA-256: {release.sha256}
               </p>
             </div>
+            {release.status === 'draft' && (
+              <div className="w-full space-y-2 border-t pt-3">
+                <label className="block text-xs text-muted-foreground">
+                  IDs dos motoboys (separados por virgula; vazio no estavel = todos)
+                  <Input
+                    disabled={busy}
+                    value={audiences[release.id] ?? ''}
+                    onChange={(e) =>
+                      setAudiences((previous) => ({ ...previous, [release.id]: e.target.value }))
+                    }
+                  />
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={busy}
+                    onClick={() => void manageRelease(release, 'validate')}
+                  >
+                    {checked[release.id] ? 'Validado - verificar novamente' : 'Validar pacote'}
+                  </Button>
+                  <Button
+                    type="button"
+                    disabled={busy || !checked[release.id]}
+                    onClick={() => void manageRelease(release, 'publish')}
+                  >
+                    Assinar e publicar
+                  </Button>
+                </div>
+              </div>
+            )}
             <span className="rounded-md border px-3 py-1 text-xs">
               {release.status === 'draft' ? 'Rascunho' : release.status}
             </span>

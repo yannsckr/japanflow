@@ -868,6 +868,11 @@ service cloud.firestore {
 
 
     // JapanFlow OTA: administrative drafts only.
+    // Server-side OTA distribution. Admin SDK only.
+    match /japanflow_ota_distribution/{document=**} {
+      allow read, write: if false;
+    }
+
     match /japanflow_ota_releases/{releaseId} {
       allow get, list: if canManageBacklog();
 
@@ -1038,6 +1043,7 @@ service cloud.firestore {
         && collection != 'cosmos_drive_files'
 && collection != 'cosmos_releases'
         && collection != 'japanflow_ota_releases'
+        && collection != 'japanflow_ota_distribution'
         && collection != 'site_warranty_receipts'
         && collection != 'warranty_claims'
         && collection != 'warranty_updates'

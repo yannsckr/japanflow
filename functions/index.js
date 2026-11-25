@@ -73,3 +73,11 @@ exports.cosmosNotifyNewRide = japanFlowNotifications.cosmosNotifyNewRide;
 exports.cosmosNotifyChat = japanFlowNotifications.cosmosNotifyChat;
 exports.cosmosNotifyOccurrence = japanFlowNotifications.cosmosNotifyOccurrence;
 exports.motoboyReportOccurrence = require('./motoboyOccurrences.cjs').motoboyReportOccurrence;
+
+exports.japanflowListOtaReleases =
+  require('./otaDistribution.cjs').japanflowListOtaReleases;
+
+exports.japanflowValidateOtaPackage =
+  require('./otaPackageValidation.cjs').japanflowValidateOtaPackage;
+
+exports.japanflowPublishOtaRelease = require('./otaPublication.cjs').japanflowPublishOtaRelease;

@@ -45,6 +45,20 @@ export function isTrustedDownloadUrl(value: string, storagePath: string): boolea
     const expectedPath =
       '/v0/b/japanflow-erp.firebasestorage.app/o/' + encodeURIComponent(storagePath);
 
+    if (url.hostname === 'storage.googleapis.com') {
+      return (
+        url.protocol === 'https:' &&
+        !url.port &&
+        !url.username &&
+        !url.password &&
+        !url.hash &&
+        decodeURIComponent(url.pathname) === '/japanflow-erp.firebasestorage.app/' + storagePath &&
+        url.searchParams.get('X-Goog-Algorithm') === 'GOOG4-RSA-SHA256' &&
+        /^[0-9]+$/.test(url.searchParams.get('generation') ?? '') &&
+        !!url.searchParams.get('X-Goog-Signature')
+      );
+    }
+
     return (
       url.protocol === 'https:' &&
       url.hostname === 'firebasestorage.googleapis.com' &&
