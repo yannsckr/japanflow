@@ -1,3 +1,4 @@
+import { beginOperation } from '@/lib/operationalLock';
 import { useEffect, useMemo, useState } from 'react';
 import { doc, onSnapshot, type Timestamp } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
@@ -129,6 +130,15 @@ export default function MotoboyJourneyManager({
 
   const takeOdometerPhoto = async (source: CameraSource = CameraSource.Camera) => {
     if (cameraBusy || busy) return;
+    let releaseOperation: () => void;
+
+    try {
+      releaseOperation = beginOperation('journey:camera');
+    } catch {
+      toast.info('JapanFlow em atualizacao. Aguarde.');
+      return;
+    }
+
     setCameraBusy(true);
     try {
       const shot = await Camera.getPhoto({
@@ -164,6 +174,7 @@ export default function MotoboyJourneyManager({
         );
       }
     } finally {
+      releaseOperation();
       setCameraBusy(false);
     }
   };
@@ -177,6 +188,15 @@ export default function MotoboyJourneyManager({
       toast.error('Informe a quilometragem exibida no painel.');
       return;
     }
+    let releaseOperation: () => void;
+
+    try {
+      releaseOperation = beginOperation('journey:odometer');
+    } catch {
+      toast.info('JapanFlow em atualizacao. Aguarde.');
+      return;
+    }
+
     setBusy(true);
     try {
       const ext = photo.type === 'image/png' ? 'png' : photo.type === 'image/webp' ? 'webp' : 'jpg';
@@ -200,11 +220,21 @@ export default function MotoboyJourneyManager({
       console.error('[motoboyJourney] registro da jornada', error);
       toast.error('Não foi possível registrar a jornada.');
     } finally {
+      releaseOperation();
       setBusy(false);
     }
   };
 
   const lunch = async (action: 'lunchStart' | 'lunchEnd') => {
+    let releaseOperation: () => void;
+
+    try {
+      releaseOperation = beginOperation('journey:lunch');
+    } catch {
+      toast.info('JapanFlow em atualizacao. Aguarde.');
+      return;
+    }
+
     setLunchBusy(true);
     try {
       await callJourney({ action });
@@ -213,6 +243,7 @@ export default function MotoboyJourneyManager({
       console.error('[motoboyJourney] almoço', error);
       toast.error('Não foi possível registrar o almoço. Confira o estado da jornada.');
     } finally {
+      releaseOperation();
       setLunchBusy(false);
     }
   };

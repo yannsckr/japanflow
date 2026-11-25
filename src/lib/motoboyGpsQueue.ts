@@ -73,3 +73,25 @@ export function storeGpsQueue(userId: string, points: PendingGpsPoint[]): void {
 export function appendGpsPoint(userId: string, point: PendingGpsPoint): void {
   storeGpsQueue(userId, [...readGpsQueue(userId), point]);
 }
+
+/**
+ * Strict queue inspection for update safety.
+ * Null means the queue state could not be determined.
+ */
+export function inspectGpsQueue(userId: string): number | null {
+  if (!userId.trim()) return null;
+
+  try {
+    const raw = localStorage.getItem(key(userId));
+
+    if (raw === null) return 0;
+
+    const parsed: unknown = JSON.parse(raw);
+
+    if (!Array.isArray(parsed)) return null;
+
+    return parsed.length;
+  } catch {
+    return null;
+  }
+}

@@ -1,3 +1,4 @@
+import { useOtaOperationalState } from '@/releases/ota/useOtaOperationalState';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { Camera as NativeCamera, CameraResultType, CameraSource } from '@capacitor/camera';
@@ -506,6 +507,22 @@ export default function MotoboyExperience({ initialScreen = 'home' }: { initialS
     [rides.all, today]
   );
   const todayCompleted = todayRides.filter((r) => r.status === 'completed');
+  const otaState = useOtaOperationalState({
+    userId: currentUser?.id,
+    ridesConfirmed: rides.serverConfirmed && !rides.loading && !rides.error,
+    openRides: rides.pending.length + rides.active.length,
+    interfaceBusy: busy || photoBusy || trackingBusy || pushBusy || !!file,
+    onHomeScreen: screen === 'home',
+  });
+
+  useEffect(() => {
+    document.documentElement.dataset.otaReadiness = otaState.readiness;
+
+    return () => {
+      delete document.documentElement.dataset.otaReadiness;
+    };
+  }, [otaState.readiness]);
+
   const todayPending = todayRides.filter((r) => r.status === 'pending').sort(newestFirst);
   const todayActive = todayRides.filter((r) => r.status === 'accepted').sort(newestFirst);
   const todayRoute = rides.route.filter((r) => rideDay(r) === today);

@@ -1,3 +1,4 @@
+import OtaReleasePanel from '@/releases/ota/components/OtaReleasePanel';
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { addDoc, deleteDoc, doc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { getDownloadURL, ref, uploadBytesResumable } from 'firebase/storage';
@@ -379,26 +380,7 @@ export default function JapanFlowReleasesPage() {
         ))}
       </nav>
 
-      {section === 'ota' && (
-        <section className="space-y-4 rounded-xl border bg-card p-6">
-          <div className="flex items-center gap-3">
-            <Zap size={22} className="text-primary" />
-            <div>
-              <h2 className="font-semibold">JapanFlow Live Updates</h2>
-              <p className="text-xs text-muted-foreground">
-                Distribuição automática de pacotes frontend.
-              </p>
-            </div>
-          </div>
-          <div className="rounded-lg border bg-muted/30 p-4">
-            <p className="text-sm font-medium">Distribuição desativada</p>
-            <p className="mt-2 text-sm text-muted-foreground">
-              A publicação OTA será liberada após a integração, verificação criptográfica e
-              homologação do motor.
-            </p>
-          </div>
-        </section>
-      )}
+      {section === 'ota' && <OtaReleasePanel userId={authenticatedUser?.id || ''} />}
 
       {section === 'devices' && (
         <section className="space-y-4 rounded-xl border bg-card p-6">

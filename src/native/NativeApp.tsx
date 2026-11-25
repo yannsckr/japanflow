@@ -1,3 +1,4 @@
+import OtaStartupReady from '@/releases/ota/components/OtaStartupReady';
 import { Suspense, lazy, useState, type ReactNode } from 'react';
 import { HashRouter, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -82,6 +83,7 @@ function AppRoutes({ platform }: { platform: NativePlatform }) {
         </div>
       }
     >
+      <OtaStartupReady />
       <Routes>
         <Route path="/login" element={platform === 'android' ? <MobileLogin /> : <LoginPage />} />
         {platform === 'android' && (
