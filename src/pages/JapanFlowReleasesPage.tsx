@@ -21,10 +21,10 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import {
   releasesCollection,
-  subscribeCosmosReleases,
+  subscribeJapanFlowReleases,
   validHttpsUrl,
-  type CosmosRelease,
-} from '@/cosmos/releases/releaseService';
+  type JapanFlowRelease,
+} from '@/releases/releaseService';
 
 function AudiencePicker({
   audience,
@@ -87,11 +87,11 @@ const empty = {
   downloadUrl: '',
   mandatory: false,
 };
-export default function CosmosReleasesPage() {
+export default function JapanFlowReleasesPage() {
   const { authenticatedUser, users } = useApp();
   const username = authenticatedUser?.username?.trim().toLowerCase() || '';
   const canPublish = ['ryan', 'japan-ti'].includes(username); // IMPORTANTE: duplicar autorizacao nas regras Firestore.
-  const [releases, setReleases] = useState<CosmosRelease[]>([]);
+  const [releases, setReleases] = useState<JapanFlowRelease[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(empty);
@@ -99,7 +99,7 @@ export default function CosmosReleasesPage() {
   const [apkFile, setApkFile] = useState<File | null>(null);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
-  const [editing, setEditing] = useState<CosmosRelease | null>(null);
+  const [editing, setEditing] = useState<JapanFlowRelease | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [editNotes, setEditNotes] = useState('');
   const [editChannel, setEditChannel] = useState<'stable' | 'beta'>('stable');
@@ -111,7 +111,7 @@ export default function CosmosReleasesPage() {
   const activeUsers = useMemo(() => users.filter((user) => user.active !== false), [users]);
   useEffect(() => {
     if (!canPublish) return;
-    return subscribeCosmosReleases(
+    return subscribeJapanFlowReleases(
       (items) => {
         setReleases(items);
         setLoading(false);
@@ -206,7 +206,7 @@ export default function CosmosReleasesPage() {
       setSaving(false);
     }
   };
-  const openEdit = (release: CosmosRelease) => {
+  const openEdit = (release: JapanFlowRelease) => {
     setEditing(release);
     setEditTitle(release.title);
     setEditNotes(release.notes);
@@ -248,7 +248,7 @@ export default function CosmosReleasesPage() {
       setSaving(false);
     }
   };
-  const removeRelease = async (release: CosmosRelease) => {
+  const removeRelease = async (release: JapanFlowRelease) => {
     if (
       !window.confirm(
         `Excluir definitivamente o registro ${release.version}? O arquivo APK armazenado não será apagado.`
@@ -264,7 +264,7 @@ export default function CosmosReleasesPage() {
       toast.error('Não foi possível excluir a release');
     }
   };
-  const toggleMandatory = async (r: CosmosRelease) => {
+  const toggleMandatory = async (r: JapanFlowRelease) => {
     try {
       await updateDoc(doc(db, 'cosmos_releases', r.id), { mandatory: !r.mandatory });
     } catch {

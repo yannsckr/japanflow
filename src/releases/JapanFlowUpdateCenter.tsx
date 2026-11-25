@@ -4,8 +4,8 @@ import { useApp } from '@/contexts/AppContext';
 import {
   compareVersions,
   isReleaseForUser,
-  subscribeCosmosReleases,
-  type CosmosRelease,
+  subscribeJapanFlowReleases,
+  type JapanFlowRelease,
 } from './releaseService';
 import {
   installedVersion,
@@ -18,7 +18,7 @@ import './japanflow-updater.css';
 export default function JapanFlowUpdateCenter() {
   const { currentUser } = useApp();
   const [version, setVersion] = useState<string>('');
-  const [releases, setReleases] = useState<CosmosRelease[]>([]);
+  const [releases, setReleases] = useState<JapanFlowRelease[]>([]);
   const [error, setError] = useState('');
   const [dismissed, setDismissed] = useState('');
   const [progress, setProgress] = useState<DownloadProgress | null>(null);
@@ -42,7 +42,7 @@ export default function JapanFlowUpdateCenter() {
   }, [currentUser, refresh]);
   useEffect(() => {
     if (!currentUser || !isNativeAndroid()) return;
-    return subscribeCosmosReleases(setReleases, () =>
+    return subscribeJapanFlowReleases(setReleases, () =>
       setError('Não foi possível consultar novas versões.')
     );
   }, [currentUser]);

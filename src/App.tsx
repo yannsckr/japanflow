@@ -31,7 +31,7 @@ const ChatHistoryPage = lazy(() => import('@/pages/ChatHistoryPage'));
 const GASPage = lazy(() => import('@/pages/GASPage'));
 const SentinelPage = lazy(() => import('@/pages/SentinelPage'));
 const BacklogPage = lazy(() => import('@/pages/BacklogPage'));
-const CosmosReleasesPage = lazy(() => import('@/pages/CosmosReleasesPage'));
+const JapanFlowReleasesPage = lazy(() => import('@/pages/JapanFlowReleasesPage'));
 const NotFound = lazy(() => import('@/pages/NotFound'));
 const queryClient = new QueryClient();
 const CarregandoPagina = () => (
@@ -75,8 +75,8 @@ const App = () => (
                 <Route path="/gas" element={<GASPage />} />
                 <Route path="/sentinel" element={<SentinelPage />} />
                 <Route path="/backlog" element={<BacklogPage />} />
-                <Route path="/ti/japanflow-releases" element={<CosmosReleasesPage />} />
-                <Route path="/ti/cosmos-releases" element={<CosmosReleasesPage />} />
+                <Route path="/ti/japanflow-releases" element={<JapanFlowReleasesPage />} />
+                <Route path="/ti/cosmos-releases" element={<JapanFlowReleasesPage />} />
               </Route>
               <Route path="/" element={<Navigate to="/login" replace />} />
               <Route path="*" element={<NotFound />} />

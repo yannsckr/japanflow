@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/lib/firebase', () => ({ db: {} }));
-import { isReleaseForUser, type CosmosRelease } from '../releaseService';
-const release = (fields: Partial<CosmosRelease> = {}) =>
+import { isReleaseForUser, type JapanFlowRelease } from '../releaseService';
+const release = (fields: Partial<JapanFlowRelease> = {}) =>
   ({
     id: 'one',
     version: '1.0.1',
@@ -13,7 +13,7 @@ const release = (fields: Partial<CosmosRelease> = {}) =>
     mandatory: false,
     downloadUrl: '',
     ...fields,
-  }) as CosmosRelease;
+  }) as JapanFlowRelease;
 describe('destinatarios de releases', () => {
   it('preserva releases antigas para todos', () => {
     expect(isReleaseForUser(release(), 'rafael')).toBe(true);

@@ -1,7 +1,7 @@
 import { collection, onSnapshot, orderBy, query, limit, type Timestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 
-export type CosmosRelease = {
+export type JapanFlowRelease = {
   id: string;
   version: string;
   title: string;
@@ -17,13 +17,14 @@ export type CosmosRelease = {
   targetUserIds?: string[];
 };
 export const releasesCollection = () => collection(db, 'cosmos_releases');
-export function subscribeCosmosReleases(
-  onValue: (items: CosmosRelease[]) => void,
+export function subscribeJapanFlowReleases(
+  onValue: (items: JapanFlowRelease[]) => void,
   onError: (e: Error) => void
 ) {
   return onSnapshot(
     query(releasesCollection(), orderBy('createdAt', 'desc'), limit(100)),
-    (snap) => onValue(snap.docs.map((item) => ({ ...item.data(), id: item.id }) as CosmosRelease)),
+    (snap) =>
+      onValue(snap.docs.map((item) => ({ ...item.data(), id: item.id }) as JapanFlowRelease)),
     onError
   );
 }
@@ -53,7 +54,7 @@ export function validHttpsUrl(value: string) {
 }
 
 /** Releases anteriores continuam disponiveis para todos. */
-export function isReleaseForUser(release: CosmosRelease, userId?: string | null): boolean {
+export function isReleaseForUser(release: JapanFlowRelease, userId?: string | null): boolean {
   if (release.audience !== 'selected') return true;
   return Boolean(
     userId && Array.isArray(release.targetUserIds) && release.targetUserIds.includes(userId)

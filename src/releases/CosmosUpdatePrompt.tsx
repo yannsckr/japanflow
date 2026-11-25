@@ -3,8 +3,8 @@ import { ArrowDownToLine, X, Sparkles } from 'lucide-react';
 import {
   compareVersions,
   isReleaseForUser,
-  subscribeCosmosReleases,
-  type CosmosRelease,
+  subscribeJapanFlowReleases,
+  type JapanFlowRelease,
 } from './releaseService';
 import { useApp } from '@/contexts/AppContext';
 
@@ -12,11 +12,13 @@ import { useApp } from '@/contexts/AppContext';
 const INSTALLED_VERSION = import.meta.env.VITE_COSMOS_APP_VERSION || '0.0.0';
 export default function CosmosUpdatePrompt() {
   const { currentUser } = useApp();
-  const [items, setItems] = useState<CosmosRelease[]>([]);
+  const [items, setItems] = useState<JapanFlowRelease[]>([]);
   const [dismissed, setDismissed] = useState<string | null>(null);
   useEffect(
     () =>
-      subscribeCosmosReleases(setItems, (e) => console.warn('JapanFlow releases indisponíveis', e)),
+      subscribeJapanFlowReleases(setItems, (e) =>
+        console.warn('JapanFlow releases indisponíveis', e)
+      ),
     []
   );
   const latest = useMemo(

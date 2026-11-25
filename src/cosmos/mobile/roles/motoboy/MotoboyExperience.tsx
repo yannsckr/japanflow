@@ -34,7 +34,7 @@ import { toast } from 'sonner';
 import { useApp } from '@/contexts/AppContext';
 import { useThemeToggle } from '@/hooks/useThemeToggle';
 import ChatPage from '@/pages/ChatPage';
-import VersionInfo from '@/cosmos/releases/VersionInfo';
+import VersionInfo from '@/releases/VersionInfo';
 import MotoboyMap from './MotoboyMap';
 import MotoboyJourneyManager from './MotoboyJourneyManager';
 import { useJourneyGpsRecording } from './useJourneyGpsRecording';
