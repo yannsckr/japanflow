@@ -866,6 +866,62 @@ service cloud.firestore {
       return canManageBacklog();
     }
 
+
+    // JapanFlow OTA: administrative drafts only.
+    match /japanflow_ota_releases/{releaseId} {
+      allow get, list: if canManageBacklog();
+
+      allow create: if canManageBacklog()
+        && request.resource.data.keys().hasAll([
+          'schemaVersion', 'bundleVersion', 'platform',
+          'title', 'notes', 'channel', 'status',
+          'minNativeCode', 'maxNativeCode',
+          'sha256', 'sizeBytes', 'storagePath',
+          'createdBy', 'createdAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'schemaVersion', 'bundleVersion', 'platform',
+          'title', 'notes', 'channel', 'status',
+          'minNativeCode', 'maxNativeCode',
+          'sha256', 'sizeBytes', 'storagePath',
+          'createdBy', 'createdAt'
+        ])
+        && request.resource.data.schemaVersion == 1
+        && request.resource.data.bundleVersion is string
+        && request.resource.data.bundleVersion.matches(
+          '^[0-9]{1,6}[.][0-9]{1,6}[.][0-9]{1,6}$'
+        )
+        && request.resource.data.platform == 'android'
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0
+        && request.resource.data.title.size() <= 160
+        && request.resource.data.notes is string
+        && request.resource.data.notes.size() > 0
+        && request.resource.data.notes.size() <= 10000
+        && request.resource.data.channel in ['stable', 'beta']
+        && request.resource.data.status == 'draft'
+        && request.resource.data.minNativeCode is int
+        && request.resource.data.maxNativeCode is int
+        && request.resource.data.minNativeCode >= 18
+        && request.resource.data.maxNativeCode
+          >= request.resource.data.minNativeCode
+        && request.resource.data.sha256 is string
+        && request.resource.data.sha256.matches('^[a-f0-9]{64}$')
+        && request.resource.data.sizeBytes is int
+        && request.resource.data.sizeBytes > 0
+        && request.resource.data.sizeBytes <= 104857600
+        && request.resource.data.storagePath is string
+        && request.resource.data.storagePath.matches(
+          '^japanflow/ota/[A-Za-z0-9_-]+/[a-f0-9-]{36}[.]zip$'
+        )
+        && request.resource.data.storagePath.split('/')[2]
+          == currentUserId()
+        && request.resource.data.createdBy == currentUserId()
+        && request.resource.data.createdAt == request.time;
+
+      allow update, delete: if false;
+    }
+
     match /cosmos_releases/{releaseId} {
       allow get, list: if isActive();
       allow create: if canPublishCosmos()
@@ -981,6 +1037,7 @@ service cloud.firestore {
         && collection != 'cosmos_drive_folders'
         && collection != 'cosmos_drive_files'
 && collection != 'cosmos_releases'
+        && collection != 'japanflow_ota_releases'
         && collection != 'site_warranty_receipts'
         && collection != 'warranty_claims'
         && collection != 'warranty_updates'

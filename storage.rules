@@ -241,6 +241,23 @@ service firebase.storage {
     }
 
     // Caminho novo da marca JapanFlow. Caminho antigo preservado para compatibilidade.
+
+    // JapanFlow OTA: immutable administrative uploads.
+    match /japanflow/ota/{userId}/{fileName} {
+      allow read: if canPublishCosmosApk();
+
+      allow create: if canPublishCosmosApk()
+        && currentUserId() == userId
+        && resource == null
+        && request.resource != null
+        && fileName.matches('^[a-f0-9-]{36}[.]zip$')
+        && request.resource.size > 0
+        && request.resource.size <= 100 * 1024 * 1024
+        && request.resource.contentType == 'application/zip';
+
+      allow update, delete: if false;
+    }
+
     match /japanflow/releases/{userId}/{fileName} {
       allow read: if activeUser();
       allow create: if canPublishCosmosApk()
