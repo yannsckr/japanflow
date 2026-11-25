@@ -7,7 +7,8 @@ import {
   isEligibleForOta,
   type OtaOperationalState,
 } from './otaPolicy';
-import { verifySignedRelease, type SignedOtaRelease } from './otaSecurity';
+import type { SignedOtaRelease } from './otaSecurity';
+import { verifyNativeOtaRelease } from './otaNativeSecurity';
 
 export const OTA_DISTRIBUTION_ENABLED = false;
 
@@ -31,7 +32,7 @@ export async function distributeOta(
   running = true;
 
   try {
-    if (!(await verifySignedRelease(release))) {
+    if (!(await verifyNativeOtaRelease(release))) {
       return false;
     }
 
@@ -67,7 +68,7 @@ export async function distributeOta(
       throw new Error('OTA checksum mismatch');
     }
 
-    if (!(await verifySignedRelease(release))) {
+    if (!(await verifyNativeOtaRelease(release))) {
       return false;
     }
 
