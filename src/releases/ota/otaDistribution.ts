@@ -1,3 +1,4 @@
+import { getNativeSequenceState, canAttemptNativeSequence } from './otaNativeSequence';
 import { CapacitorUpdater } from '@capgo/capacitor-updater';
 import { nativeUpdater } from '../nativeUpdater';
 import { isOtaSupported } from './otaEngine';
@@ -49,6 +50,12 @@ export async function distributeOta(
     };
 
     if (!isEligibleForOta(release, device)) {
+      return false;
+    }
+
+    const sequenceState = await getNativeSequenceState();
+
+    if (!sequenceState || !canAttemptNativeSequence(sequenceState, release.sequence)) {
       return false;
     }
 
