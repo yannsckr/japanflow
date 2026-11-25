@@ -1,6 +1,7 @@
 'use strict';
 
 const crypto = require('node:crypto');
+const { protectedPayload } = require('./otaProtectedProtocol.cjs');
 
 const MAX_BYTES = 100 * 1024 * 1024;
 const MIN_NATIVE_CODE = 18;
@@ -56,7 +57,7 @@ function normalizeAudience(ids) {
 function canonicalPayload(release) {
   const m = release.manifest;
 
-  return JSON.stringify([
+  const payload = [
     'japanflow-ota-v1',
     'com.japanflow.mobile',
     m.schemaVersion,
@@ -75,7 +76,17 @@ function canonicalPayload(release) {
     release.sequence,
     release.expiresAt,
     release.targetUserIds,
-  ]);
+  ];
+
+  if (release.protectedBundle !== undefined) {
+    payload[0] = 'japanflow-ota-v2';
+    return JSON.stringify([
+      ...payload,
+      protectedPayload(release.protectedBundle),
+    ]);
+  }
+
+  return JSON.stringify(payload);
 }
 
 function trustedDownloadUrl(value, storagePath) {

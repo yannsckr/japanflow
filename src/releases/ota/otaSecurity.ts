@@ -1,3 +1,8 @@
+import {
+  protectedPayload,
+  isValidProtectedMetadata,
+  type ProtectedBundleMetadata,
+} from './otaProtectedProtocol';
 import { OTA_PUBLIC_KEY } from './otaPublicKey';
 import { isValidOtaManifest, type OtaManifest } from './otaManifest';
 
@@ -8,12 +13,13 @@ export interface SignedOtaRelease {
   expiresAt: number;
   targetUserIds: string[];
   signature: string;
+  protectedBundle?: ProtectedBundleMetadata;
 }
 
 export function canonicalPayload(release: SignedOtaRelease): string {
   const m = release.manifest;
 
-  return JSON.stringify([
+  const payload = [
     'japanflow-ota-v1',
     'com.japanflow.mobile',
     m.schemaVersion,
@@ -32,7 +38,14 @@ export function canonicalPayload(release: SignedOtaRelease): string {
     release.sequence,
     release.expiresAt,
     release.targetUserIds,
-  ]);
+  ];
+
+  if (release.protectedBundle !== undefined) {
+    payload[0] = 'japanflow-ota-v2';
+    return JSON.stringify([...payload, protectedPayload(release.protectedBundle)]);
+  }
+
+  return JSON.stringify(payload);
 }
 
 function fromBase64(value: string): Uint8Array<ArrayBuffer> {
@@ -81,6 +94,8 @@ export async function verifySignedRelease(
   try {
     if (
       !isValidOtaManifest(release.manifest) ||
+      (release.protectedBundle !== undefined &&
+        !isValidProtectedMetadata(release.protectedBundle)) ||
       release.manifest.status !== 'published' ||
       !Number.isSafeInteger(release.sequence) ||
       release.sequence <= 0 ||

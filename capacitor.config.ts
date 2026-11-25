@@ -1,3 +1,4 @@
+import { OTA_CAPGO_PUBLIC_KEY } from './src/releases/ota/otaCapgoPublicKey';
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
@@ -8,6 +9,7 @@ const config: CapacitorConfig = {
   android: { useLegacyBridge: true },
   plugins: {
     CapacitorUpdater: {
+      publicKey: OTA_CAPGO_PUBLIC_KEY,
       autoUpdate: false,
       appReadyTimeout: 30000,
       autoDeleteFailed: true,

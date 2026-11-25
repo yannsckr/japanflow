@@ -1,3 +1,4 @@
+import { isValidProtectedMetadata } from './otaProtectedProtocol';
 import { getNativeSequenceState, canAttemptNativeSequence } from './otaNativeSequence';
 import { CapacitorUpdater } from '@capgo/capacitor-updater';
 import { nativeUpdater } from '../nativeUpdater';
@@ -65,10 +66,15 @@ export async function distributeOta(
       return false;
     }
 
+    if (!release.protectedBundle || !isValidProtectedMetadata(release.protectedBundle)) {
+      return false;
+    }
+
     const bundle = await CapacitorUpdater.download({
       url: release.downloadUrl,
       version: release.manifest.bundleVersion,
-      checksum: release.manifest.sha256,
+      checksum: release.protectedBundle.checksum,
+      sessionKey: release.protectedBundle.sessionKey,
     });
 
     if (!bundle.checksum || bundle.checksum.toLowerCase() !== release.manifest.sha256) {
