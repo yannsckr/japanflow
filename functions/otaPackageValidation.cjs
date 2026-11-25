@@ -69,7 +69,7 @@ async function requirePublisher(request) {
 
 exports.japanflowValidateOtaPackage = onCall(
   {
-    region: 'southamerica-east1',
+    region: 'southamerica-east1', serviceAccount: 'japanflow-ota@japanflow-erp.iam.gserviceaccount.com',
     enforceAppCheck: true,
     memory: '1GiB',
     concurrency: 1,

@@ -8,7 +8,7 @@ const { verifyProtectedPublication, signProtectedDelivery } = require('./otaProt
 const { otaSigningKey } = require('./otaPublication.cjs');
 const trusted = require('./otaTrustedKey.cjs');
 const DISTRIBUTION_ENABLED = false;
-exports.japanflowListOtaReleases=onCall({region:'southamerica-east1',enforceAppCheck:true,secrets:[otaSigningKey],maxInstances:3,timeoutSeconds:30},async request=>{
+exports.japanflowListOtaReleases=onCall({region:'southamerica-east1', serviceAccount: 'japanflow-ota@japanflow-erp.iam.gserviceaccount.com',enforceAppCheck:true,secrets:[otaSigningKey],maxInstances:3,timeoutSeconds:30},async request=>{
   if (!request.auth?.uid) throw new HttpsError('unauthenticated','Login required');
   const db=getFirestore();
   const link=(await db.doc(`auth_links/${request.auth.uid}`).get()).data();

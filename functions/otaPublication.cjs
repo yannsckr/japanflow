@@ -22,7 +22,7 @@ async function requirePublisher(request) {
   return link.user_id;
 }
 exports.otaSigningKey=otaSigningKey;
-exports.japanflowPublishOtaRelease=onCall({region:'southamerica-east1',enforceAppCheck:true,secrets:[otaSigningKey,rsaSigningKey],memory:'2GiB',concurrency:1,maxInstances:2,timeoutSeconds:180},async request=>{
+exports.japanflowPublishOtaRelease=onCall({region:'southamerica-east1', serviceAccount: 'japanflow-ota@japanflow-erp.iam.gserviceaccount.com',enforceAppCheck:true,secrets:[otaSigningKey,rsaSigningKey],memory:'2GiB',concurrency:1,maxInstances:2,timeoutSeconds:180},async request=>{
   const actor=await requirePublisher(request);
   const draftId=request.data?.draftId;
   if (typeof draftId!=='string' || !/^[A-Za-z0-9_-]{1,128}$/.test(draftId)) throw new HttpsError('invalid-argument','Invalid draft ID');
@@ -61,7 +61,7 @@ exports.japanflowPublishOtaRelease=onCall({region:'southamerica-east1',enforceAp
   });
 });
 
-exports.japanflowRevokeOtaRelease = onCall({region:'southamerica-east1',enforceAppCheck:true,maxInstances:2,timeoutSeconds:30},async request=>{
+exports.japanflowRevokeOtaRelease = onCall({region:'southamerica-east1', serviceAccount: 'japanflow-ota@japanflow-erp.iam.gserviceaccount.com',enforceAppCheck:true,maxInstances:2,timeoutSeconds:30},async request=>{
   const actor=await requirePublisher(request);
   const draftId=request.data?.draftId;
   if (typeof draftId!=='string' || !/^[A-Za-z0-9_-]{1,128}$/.test(draftId)) throw new HttpsError('invalid-argument','Invalid draft ID');

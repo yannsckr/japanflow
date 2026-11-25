@@ -7,6 +7,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(JapanFlowUpdaterPlugin.class);
         registerPlugin(JapanFlowNativeGpsPlugin.class);
         registerPlugin(JapanFlowOtaPlugin.class);
+        registerPlugin(JapanFlowAppCheckPlugin.class);
         super.onCreate(savedInstanceState);
     }
 }

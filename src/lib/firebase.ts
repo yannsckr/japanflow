@@ -1,3 +1,5 @@
+import { Capacitor, registerPlugin } from '@capacitor/core';
+import { initializeAppCheck, ReCaptchaEnterpriseProvider } from 'firebase/app-check';
 import { initializeApp } from 'firebase/app';
 import { connectAuthEmulator, getAuth } from 'firebase/auth';
 import { connectFirestoreEmulator, getFirestore } from 'firebase/firestore';
@@ -14,6 +16,58 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
+
+interface NativeAppCheckPlugin {
+  getToken(): Promise<{
+    token: string;
+    expireTimeMillis: number;
+  }>;
+}
+
+const nativeAppCheck = registerPlugin<NativeAppCheckPlugin>('JapanFlowAppCheck');
+
+if (
+  Capacitor.isNativePlatform() &&
+  Capacitor.getPlatform() === 'android' &&
+  import.meta.env.VITE_USE_FIREBASE_EMULATORS !== 'true'
+) {
+  initializeAppCheck(app, {
+    provider: new CustomProvider({
+      getToken: async () => {
+        if (!Capacitor.isPluginAvailable('JapanFlowAppCheck')) {
+          throw new Error('Native App Check plugin unavailable');
+        }
+
+        const result = await nativeAppCheck.getToken();
+
+        if (
+          !result.token ||
+          !Number.isFinite(result.expireTimeMillis) ||
+          result.expireTimeMillis <= Date.now()
+        ) {
+          throw new Error('Invalid native App Check token');
+        }
+
+        return result;
+      },
+    }),
+    isTokenAutoRefreshEnabled: true,
+  });
+}
+
+const appCheckSiteKey = import.meta.env.VITE_FIREBASE_APP_CHECK_SITE_KEY;
+
+if (
+  !Capacitor.isNativePlatform() &&
+  import.meta.env.PROD &&
+  import.meta.env.VITE_USE_FIREBASE_EMULATORS !== 'true' &&
+  appCheckSiteKey
+) {
+  initializeAppCheck(app, {
+    provider: new ReCaptchaEnterpriseProvider(appCheckSiteKey),
+    isTokenAutoRefreshEnabled: true,
+  });
+}
 
 export const auth = getAuth(app);
 export const db = getFirestore(app);
