@@ -1,3 +1,4 @@
+import { rememberOtaFailure } from '../otaFailureHistory';
 import { useEffect } from 'react';
 import { confirmOtaStartup, getOtaState, isOtaSupported } from '../otaEngine';
 import {
@@ -31,6 +32,10 @@ async function confirmStartup() {
   const currentId = state.current.bundle.id;
 
   const reconciled = reconcileActivation(journal.record, currentId, confirmed);
+
+  if (reconciled.status === 'failed') {
+    rememberOtaFailure(reconciled.sequence);
+  }
 
   writeActivationJournal(reconciled);
 
