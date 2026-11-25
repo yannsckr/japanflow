@@ -53,6 +53,65 @@ public class JapanFlowNativeGpsPlugin extends Plugin {
         });
     }
 
+
+    @PluginMethod
+    public void checkUpdateReadiness(PluginCall call) {
+        if (FirebaseApp.getApps(getContext()).isEmpty()) {
+            JSObject result = new JSObject();
+            result.put("confirmed", false);
+            result.put("reason", "firebase-unavailable");
+            call.resolve(result);
+            return;
+        }
+
+        final java.util.concurrent.atomic.AtomicBoolean completed =
+            new java.util.concurrent.atomic.AtomicBoolean(false);
+
+        final android.os.Handler handler =
+            new android.os.Handler(android.os.Looper.getMainLooper());
+
+        final Runnable timeout = () -> {
+            if (!completed.compareAndSet(false, true)) return;
+
+            JSObject result = new JSObject();
+            result.put("confirmed", false);
+            result.put("reason", "sync-timeout");
+            call.resolve(result);
+        };
+
+        handler.postDelayed(timeout, 5000);
+
+        try {
+            com.google.firebase.firestore.FirebaseFirestore
+                .getInstance()
+                .waitForPendingWrites()
+                .addOnCompleteListener(task -> {
+                    if (!completed.compareAndSet(false, true)) return;
+
+                    handler.removeCallbacks(timeout);
+
+                    JSObject result = new JSObject();
+                    result.put("confirmed", task.isSuccessful());
+                    result.put(
+                        "reason",
+                        task.isSuccessful()
+                            ? "writes-confirmed"
+                            : "sync-failed"
+                    );
+                    call.resolve(result);
+                });
+        } catch (Exception error) {
+            if (!completed.compareAndSet(false, true)) return;
+
+            handler.removeCallbacks(timeout);
+
+            JSObject result = new JSObject();
+            result.put("confirmed", false);
+            result.put("reason", "native-sync-error");
+            call.resolve(result);
+        }
+    }
+
     @PluginMethod
     public void stop(PluginCall call) {
         Intent intent = new Intent(getContext(), JapanFlowGpsService.class);
