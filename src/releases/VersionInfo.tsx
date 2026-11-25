@@ -1,11 +1,26 @@
 import { useEffect, useState } from 'react';
+import { getOtaState } from './ota/otaEngine';
+import { isValidBundleVersion } from './ota/otaManifest';
 import { installedVersion, isNativeAndroid } from './nativeUpdater';
 export default function VersionInfo({ withCheck = false }: { withCheck?: boolean }) {
   const [version, setVersion] = useState('');
+  const [bundle, setBundle] = useState('');
   useEffect(() => {
     void installedVersion()
       .then(setVersion)
       .catch(() => setVersion('indisponível'));
+    void getOtaState()
+      .then((state) => {
+        if (
+          state &&
+          state.current.bundle.id !== 'builtin' &&
+          isValidBundleVersion(state.current.bundle.version)
+        )
+          setBundle(state.current.bundle.version);
+      })
+      .catch(() => {
+        /* Native bundle information unavailable. */
+      });
   }, []);
   if (!isNativeAndroid()) return null;
   return (
@@ -20,7 +35,10 @@ export default function VersionInfo({ withCheck = false }: { withCheck?: boolean
         color: '#647a6f',
       }}
     >
-      <span>JapanFlow v{version || '…'}</span>
+      <span>
+        JapanFlow v{version || '…'}
+        {bundle ? ` / OTA ${bundle}` : ''}
+      </span>
       {withCheck && (
         <button
           type="button"

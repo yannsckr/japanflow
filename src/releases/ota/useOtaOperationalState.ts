@@ -1,4 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
+import type { OtaOperationalState } from './otaPolicy';
+import { confirmOtaSynchronization } from './otaSyncBarrier';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { inspectGpsQueue } from '@/lib/motoboyGpsQueue';
@@ -55,6 +57,19 @@ export function useOtaOperationalState({
   onHomeScreen,
 }: OperationalInput) {
   const [readiness, setReadiness] = useState<OtaReadiness>('waiting');
+  const reader = useRef<(() => OtaOperationalState) | null>(null);
+  const latest = useRef({ userId, ridesConfirmed, openRides, interfaceBusy, onHomeScreen });
+  latest.current = { userId, ridesConfirmed, openRides, interfaceBusy, onHomeScreen };
+  const getOperationalState = useCallback(async (): Promise<OtaOperationalState> => {
+    const read = reader.current;
+    const id = latest.current.userId;
+    if (!read || !id) throw new Error('Operational state unavailable');
+    const sync = await confirmOtaSynchronization(id);
+    if (reader.current !== read || latest.current.userId !== id)
+      throw new Error('Operational state changed');
+    const state = read();
+    return { ...state, pendingWrites: sync.confirmed ? 0 : 1 };
+  }, []);
 
   useEffect(() => {
     if (!isOtaSupported() || !userId) {
@@ -127,8 +142,7 @@ export function useOtaOperationalState({
         journeyKnown &&
         !journeyPendingWrites &&
         inspectGpsQueue(userId!) === 0 &&
-        lock.activeOperations === 0 &&
-        !lock.updateLocked
+        lock.activeOperations === 0
       );
     }
 
@@ -218,6 +232,25 @@ export function useOtaOperationalState({
       );
     }
 
+    const read = (): OtaOperationalState => {
+      const input = latest.current;
+      const lock = getOperationalLockState();
+      const valid = !disposed && input.userId === userId && day === getSaoPauloDay();
+      return {
+        ...(detector?.current() ?? unknownIdleWindow()),
+        serverConfirmed: valid && input.ridesConfirmed,
+        internetConnected: navigator.onLine,
+        journeyKnown: valid && journeyKnown && !journeyPendingWrites,
+        journeyOpen,
+        openRides: input.openRides,
+        pendingWrites: 1,
+        pendingGpsRecords: inspectGpsQueue(userId) ?? -1,
+        operationBusy:
+          !valid || input.interfaceBusy || !input.onHomeScreen || lock.activeOperations !== 0,
+        foreground: document.visibilityState === 'visible',
+      };
+    };
+    reader.current = read;
     subscribeJourney();
 
     const interval = window.setInterval(check, 10000);
@@ -236,6 +269,7 @@ export function useOtaOperationalState({
 
     return () => {
       disposed = true;
+      if (reader.current === read) reader.current = null;
       unsubscribe?.();
       detector?.reset();
       window.clearInterval(interval);
@@ -252,6 +286,7 @@ export function useOtaOperationalState({
     // Diagnostic only. Native queues and durable activation
     // protection must be verified before enabling distribution.
     activationAuthorized: false,
+    getOperationalState,
     unknownLocation: unknownIdleWindow,
   };
 }

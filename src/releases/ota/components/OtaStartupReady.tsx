@@ -1,4 +1,6 @@
+import { recordOtaDiagnostic } from '../otaDiagnostics';
 import { rememberOtaFailure } from '../otaFailureHistory';
+import { reconcileNativeActivation } from '../otaActivationBridge';
 import { useEffect } from 'react';
 import { confirmOtaStartup, getOtaState, isOtaSupported } from '../otaEngine';
 import {
@@ -16,6 +18,9 @@ async function confirmStartup() {
 
   if (!confirmed) return;
 
+  const state = await getOtaState();
+  if (!state) return;
+  if (!(await reconcileNativeActivation(state.current.bundle.id))) return;
   const journal = readActivationJournal();
 
   if (!journal.known) {
@@ -24,10 +29,6 @@ async function confirmStartup() {
   }
 
   if (!journal.record || journal.record.status !== 'activating') return;
-
-  const state = await getOtaState();
-
-  if (!state) return;
 
   const currentId = state.current.bundle.id;
 
@@ -38,6 +39,8 @@ async function confirmStartup() {
   }
 
   writeActivationJournal(reconciled);
+  if (reconciled.status === 'confirmed' || reconciled.status === 'failed')
+    recordOtaDiagnostic(reconciled.status);
 
   console.info('[JapanFlow OTA] Activation result:', reconciled.status);
 }

@@ -143,6 +143,14 @@ export async function verifySignedRelease(
     )
       return false;
 
+    if (!/^[A-Za-z0-9+/]{86}==$/.test(release.signature)) return false;
+    const signatureBytes = fromBase64(release.signature);
+    if (
+      signatureBytes.length !== 64 ||
+      btoa(String.fromCharCode(...signatureBytes)) !== release.signature
+    )
+      return false;
+
     const key = await crypto.subtle.importKey(
       'spki',
       fromBase64(publicKey),
@@ -154,7 +162,7 @@ export async function verifySignedRelease(
     return await crypto.subtle.verify(
       { name: 'ECDSA', hash: 'SHA-256' },
       key,
-      fromBase64(release.signature),
+      signatureBytes,
       new TextEncoder().encode(canonicalPayload(release))
     );
   } catch {

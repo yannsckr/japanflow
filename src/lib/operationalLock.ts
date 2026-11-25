@@ -1,14 +1,22 @@
 const activeOperations = new Map<string, number>();
 
 let updateLocked = false;
+const blockers = new Set<symbol>();
+
+export function registerOperationalBlocker(): () => void {
+  const token = Symbol('operational-blocker');
+  blockers.add(token);
+  return () => {
+    blockers.delete(token);
+  };
+}
 
 export function getOperationalLockState() {
   return {
     updateLocked,
-    activeOperations: Array.from(activeOperations.values()).reduce(
-      (total, count) => total + count,
-      0
-    ),
+    activeOperations:
+      blockers.size +
+      Array.from(activeOperations.values()).reduce((total, count) => total + count, 0),
   };
 }
 
@@ -54,7 +62,7 @@ export async function withOperationalLock<T>(
 }
 
 export function acquireUpdateLock(): (() => void) | null {
-  if (updateLocked || activeOperations.size > 0) {
+  if (updateLocked || activeOperations.size > 0 || blockers.size > 0) {
     return null;
   }
 

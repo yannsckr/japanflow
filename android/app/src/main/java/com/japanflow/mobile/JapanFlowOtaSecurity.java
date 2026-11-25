@@ -110,6 +110,11 @@ public final class JapanFlowOtaSecurity {
                 Base64.DEFAULT
             );
 
+            if (rawSignature.length != 64 ||
+                !Base64.encodeToString(rawSignature, Base64.NO_WRAP).equals(signature)) {
+                return false;
+            }
+
             Signature verifier =
                 Signature.getInstance("SHA256withECDSA");
 

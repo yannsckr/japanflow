@@ -1,5 +1,9 @@
-import { beginOperation } from '@/lib/operationalLock';
-import { useEffect, useMemo, useState } from 'react';
+import {
+  beginOperation,
+  registerOperationalBlocker,
+  getOperationalLockState,
+} from '@/lib/operationalLock';
+import { useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import { doc, onSnapshot, type Timestamp } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { ref, uploadBytes } from 'firebase/storage';
@@ -107,6 +111,12 @@ export default function MotoboyJourneyManager({
   // Falha fechada: sem confirmação do Firestore, o app permanece bloqueado após 07h.
   const needsStart = afterSeven && !!userId && (!loaded || !journey?.started_at);
   const shouldShowPhoto = needsStart || endOpen;
+  const otaBlocked =
+    !loaded || shouldShowPhoto || !!photo || !!reading.trim() || cameraBusy || busy || lunchBusy;
+  useLayoutEffect(() => {
+    if (!otaBlocked) return;
+    return registerOperationalBlocker();
+  }, [otaBlocked]);
   const lunchStarted = journey?.lunch_started_at;
   const lunchEnded = journey?.lunch_ended_at;
   const lunchMinutes = lunchStarted
@@ -285,7 +295,13 @@ export default function MotoboyJourneyManager({
               disabled={hasOpenRides}
               title={hasOpenRides ? 'Finalize todas as corridas antes de encerrar o dia.' : ''}
               className="rounded-lg border border-primary/30 px-3 py-2 font-medium disabled:cursor-not-allowed disabled:opacity-50"
-              onClick={() => setEndOpen(true)}
+              onClick={() => {
+                if (getOperationalLockState().updateLocked) {
+                  toast.info('JapanFlow em atualizacao. Aguarde.');
+                  return;
+                }
+                setEndOpen(true);
+              }}
             >
               <LogOut size={14} className="mr-1 inline" /> Encerrar dia
             </button>

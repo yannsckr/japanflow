@@ -220,6 +220,8 @@ function verifyRelease(release, publicKey) {
       return false;
     }
 
+    const signatureBytes = Buffer.from(release.signature, 'base64');
+    if (signatureBytes.length !== 64 || signatureBytes.toString('base64') !== release.signature) return false;
     return crypto.verify(
       'sha256',
       Buffer.from(canonicalPayload(release), 'utf8'),
@@ -227,7 +229,7 @@ function verifyRelease(release, publicKey) {
         key: publicKey,
         dsaEncoding: 'ieee-p1363',
       },
-      Buffer.from(release.signature, 'base64')
+      signatureBytes
     );
   } catch {
     return false;

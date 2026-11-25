@@ -1,4 +1,5 @@
 import { useOtaOperationalState } from '@/releases/ota/useOtaOperationalState';
+import { useOtaAutomaticUpdate } from '@/releases/ota/useOtaAutomaticUpdate';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { Camera as NativeCamera, CameraResultType, CameraSource } from '@capacitor/camera';
@@ -515,6 +516,8 @@ export default function MotoboyExperience({ initialScreen = 'home' }: { initialS
     onHomeScreen: screen === 'home',
   });
 
+  const otaProgress = useOtaAutomaticUpdate(currentUser?.id, otaState.getOperationalState);
+
   useEffect(() => {
     document.documentElement.dataset.otaReadiness = otaState.readiness;
 
@@ -536,6 +539,15 @@ export default function MotoboyExperience({ initialScreen = 'home' }: { initialS
   );
   const bottom = (
     <nav className="jm-bottom" aria-label="Navegação inferior">
+      {otaProgress !== null && (
+        <div
+          role="status"
+          className="fixed bottom-20 left-4 right-4 z-50 rounded-lg border bg-background p-3 text-sm shadow"
+        >
+          Atualizando JapanFlow: {Math.round(otaProgress)}%
+          <progress className="block w-full" max={100} value={otaProgress} />
+        </div>
+      )}
       {[
         { key: 'home' as Screen, label: 'Início', icon: Home },
         { key: 'rides' as Screen, label: 'Corridas', icon: Bike },
