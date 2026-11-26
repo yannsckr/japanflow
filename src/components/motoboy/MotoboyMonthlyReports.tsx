@@ -8,7 +8,17 @@ import {
   type Query,
 } from 'firebase/firestore';
 import { DateTime } from 'luxon';
-import { CalendarDays, FileSpreadsheet, FileText, Gauge, PackageCheck, Clock3 } from 'lucide-react';
+import {
+  CalendarDays,
+  FileSpreadsheet,
+  FileText,
+  Gauge,
+  PackageCheck,
+  Clock3,
+  ChevronDown,
+  ChevronRight,
+  SlidersHorizontal,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { db } from '@/lib/firebase';
 import { Button } from '@/components/ui/button';
@@ -35,6 +45,9 @@ import {
   buildMonthlyXlsx,
   downloadReport,
   journeyStatus,
+  defaultReportExportOptions,
+  exportDetails,
+  type ReportExportOptions,
 } from './monthlyReportExport';
 
 const ZONE = 'America/Sao_Paulo';
@@ -66,6 +79,10 @@ export default function MotoboyMonthlyReports({
   );
   const [selected, setSelected] = useState(initialMotoboy);
   const [sources, setSources] = useState(() => emptyState(month));
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [exportOptions, setExportOptions] = useState<ReportExportOptions>(
+    defaultReportExportOptions
+  );
   const [exporting, setExporting] = useState<'pdf' | 'xlsx' | null>(null);
 
   useEffect(() => {
@@ -157,14 +174,21 @@ export default function MotoboyMonthlyReports({
     days: filtered.reduce((sum, s) => sum + s.journeyDays, 0),
     missing: filtered.reduce((sum, s) => sum + s.incompleteKmDays, 0),
   };
+  const hasExport = exportOptions.summary || exportOptions.journeys || exportOptions.rides;
+  const detailCount = filtered.reduce(
+    (sum, section) =>
+      sum +
+      section.days.reduce((n, day) => n + exportDetails(day, exportOptions.rideFilter).length, 0),
+    0
+  );
   const exportData = async (format: 'pdf' | 'xlsx') => {
-    if (!ready || exporting || !filtered.length) return;
+    if (!ready || exporting || !filtered.length || !hasExport) return;
     setExporting(format);
     try {
       const blob =
         format === 'pdf'
-          ? new Blob([buildMonthlyPdf(filtered, month)], { type: 'application/pdf' })
-          : await buildMonthlyXlsx(filtered, month);
+          ? new Blob([buildMonthlyPdf(filtered, month, exportOptions)], { type: 'application/pdf' })
+          : await buildMonthlyXlsx(filtered, month, exportOptions);
       downloadReport(
         blob,
         `JapanFlow-Acompanhamento-${month}-${selected === 'all' ? 'Todos' : selected.replace(/[^a-zA-Z0-9_-]/g, '_')}.${format}`
@@ -229,19 +253,19 @@ export default function MotoboyMonthlyReports({
       ))}
       {ready && (
         <>
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <div className="grid grid-cols-2 divide-x divide-border overflow-hidden rounded-xl border bg-card lg:grid-cols-4">
             {[
               { label: 'Corridas concluídas', value: String(totals.completed), Icon: PackageCheck },
               { label: 'Km registrados', value: `${kmLabel(totals.km)} km`, Icon: Gauge },
               { label: 'Dias com jornada', value: String(totals.days), Icon: CalendarDays },
               { label: 'Designações registradas', value: String(totals.assigned), Icon: Clock3 },
             ].map(({ label, value, Icon }) => (
-              <article key={label} className="rounded-xl border border-border bg-card p-4">
+              <article key={label} className="min-w-0 p-4">
                 <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
                   {label}
                   <Icon className="h-4 w-4 shrink-0 text-primary" />
                 </div>
-                <p className="mt-2 text-2xl font-semibold tabular-nums">{value}</p>
+                <p className="mt-1 text-xl font-semibold tabular-nums">{value}</p>
               </article>
             ))}
           </div>
@@ -270,7 +294,7 @@ export default function MotoboyMonthlyReports({
                 </span>
               </header>
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[980px] text-left text-xs">
+                <table className="w-full min-w-[900px] text-left text-sm">
                   <thead className="bg-muted/40 text-muted-foreground">
                     <tr>
                       {[
@@ -285,40 +309,62 @@ export default function MotoboyMonthlyReports({
                         'Situação',
                         'Detalhes',
                       ].map((label) => (
-                        <th key={label} className="whitespace-nowrap p-3 font-medium">
+                        <th key={label} className="whitespace-nowrap px-3 py-2 text-xs font-medium">
                           {label}
                         </th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {section.days.map((day) => (
-                      <Fragment key={day.date}>
-                        <tr className="border-t border-border tabular-nums">
-                          <td className="whitespace-nowrap p-3 font-medium">
-                            {dateLabel(day.date)}
-                          </td>
-                          <td className="p-3">{timeLabel(day.startedAt)}</td>
-                          <td className="p-3">{timeLabel(day.endedAt)}</td>
-                          <td className="p-3">{kmLabel(day.startKm)}</td>
-                          <td className="p-3">{kmLabel(day.endKm)}</td>
-                          <td className="p-3 font-semibold">{kmLabel(day.km)}</td>
-                          <td className="p-3">{day.assigned}</td>
-                          <td className="p-3 font-semibold">{day.completed}</td>
-                          <td className="whitespace-nowrap p-3">{journeyStatus(day)}</td>
-                          <td className="p-3 text-muted-foreground">
-                            {day.details.length} registro(s)
-                          </td>
-                        </tr>
-                        {day.details.length > 0 && (
-                          <tr className="border-t border-border/50">
-                            <td colSpan={10} className="bg-muted/10 p-2">
-                              <details className="rounded-lg border bg-card">
-                                <summary className="cursor-pointer px-3 py-2 font-medium">
-                                  Ver corridas de {dateLabel(day.date)} ({day.details.length})
-                                </summary>
+                    {section.days.map((day) => {
+                      const key = `${month}:${section.person.id}:${day.date}`;
+                      const open = expanded === key;
+                      return (
+                        <Fragment key={key}>
+                          <tr className="border-t border-border/70 tabular-nums transition-colors hover:bg-muted/30">
+                            <td className="whitespace-nowrap px-3 py-2.5 font-medium">
+                              {dateLabel(day.date)}
+                            </td>
+                            <td className="px-3 py-2.5">{timeLabel(day.startedAt)}</td>
+                            <td className="px-3 py-2.5">{timeLabel(day.endedAt)}</td>
+                            <td className="px-3 py-2.5">{kmLabel(day.startKm)}</td>
+                            <td className="px-3 py-2.5">{kmLabel(day.endKm)}</td>
+                            <td className="px-3 py-2.5 font-semibold">{kmLabel(day.km)}</td>
+                            <td className="px-3 py-2.5">{day.assigned}</td>
+                            <td className="px-3 py-2.5 font-semibold">{day.completed}</td>
+                            <td className="whitespace-nowrap px-3 py-2.5 text-muted-foreground">
+                              {journeyStatus(day)}
+                            </td>
+                            <td className="px-3 py-2.5">
+                              {day.details.length ? (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 gap-1 px-2 text-xs"
+                                  aria-expanded={open}
+                                  aria-label={`Ver corridas de ${dateLabel(day.date)}`}
+                                  onClick={() => setExpanded(open ? null : key)}
+                                >
+                                  {open ? (
+                                    <ChevronDown className="h-3.5 w-3.5" />
+                                  ) : (
+                                    <ChevronRight className="h-3.5 w-3.5" />
+                                  )}
+                                  {day.details.length}
+                                </Button>
+                              ) : (
+                                <span className="text-muted-foreground">—</span>
+                              )}
+                            </td>
+                          </tr>
+                          {open && day.details.length > 0 && (
+                            <tr>
+                              <td colSpan={10} className="border-t bg-muted/20 px-4 py-3">
+                                <p className="mb-2 text-xs font-semibold">
+                                  Corridas · {dateLabel(day.date)}
+                                </p>
                                 <div className="overflow-x-auto">
-                                  <table className="w-full min-w-[820px] text-left text-xs">
+                                  <table className="w-full min-w-[760px] text-left text-xs">
                                     <thead className="bg-muted/30 text-muted-foreground">
                                       <tr>
                                         {[
@@ -363,12 +409,12 @@ export default function MotoboyMonthlyReports({
                                     </tbody>
                                   </table>
                                 </div>
-                              </details>
-                            </td>
-                          </tr>
-                        )}
-                      </Fragment>
-                    ))}
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      );
+                    })}
                     {!section.days.length && (
                       <tr>
                         <td colSpan={10} className="p-5 text-muted-foreground">
@@ -394,7 +440,7 @@ export default function MotoboyMonthlyReports({
               </div>
             </article>
           ))}
-          <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-border bg-card p-4">
+          <div className="space-y-4 rounded-xl border border-border bg-card p-4">
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 Total do mês — filtro atual
@@ -403,10 +449,71 @@ export default function MotoboyMonthlyReports({
                 {totals.completed} corridas concluídas · {kmLabel(totals.km)} km registrados
               </p>
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="border-t pt-4">
+              <h3 className="flex items-center gap-2 text-sm font-semibold">
+                <SlidersHorizontal className="h-4 w-4" /> Personalizar exportação
+              </h3>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Exporta o mês e os motoboys selecionados acima. Os totais permanecem integrais; o
+                filtro de corridas afeta somente o detalhamento.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2">
+                {(
+                  [
+                    { key: 'summary', label: 'Resumo mensal' },
+                    { key: 'journeys', label: 'Jornadas e odômetros' },
+                    { key: 'rides', label: 'Detalhes das corridas' },
+                  ] as const
+                ).map(({ key, label }) => (
+                  <label key={key} className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 accent-primary"
+                      checked={exportOptions[key]}
+                      onChange={(event) =>
+                        setExportOptions((previous) => ({
+                          ...previous,
+                          [key]: event.target.checked,
+                        }))
+                      }
+                    />
+                    {label}
+                  </label>
+                ))}
+              </div>
+              {exportOptions.rides && (
+                <div className="mt-3 flex flex-wrap items-center gap-3">
+                  <Select
+                    value={exportOptions.rideFilter}
+                    onValueChange={(value) =>
+                      setExportOptions((previous) => ({
+                        ...previous,
+                        rideFilter: value as ReportExportOptions['rideFilter'],
+                      }))
+                    }
+                  >
+                    <SelectTrigger className="h-9 w-[240px]" aria-label="Corridas a exportar">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todos os registros</SelectItem>
+                      <SelectItem value="completed">Somente concluídas no dia</SelectItem>
+                      <SelectItem value="assigned">Somente designações registradas</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <span className="text-xs text-muted-foreground">
+                    {detailCount} registros no detalhamento
+                  </span>
+                </div>
+              )}
+              {!hasExport && (
+                <p className="mt-2 text-xs text-destructive">Selecione pelo menos uma seção.</p>
+              )}
+            </div>
+            <div className="flex flex-wrap justify-end gap-2">
               <Button
                 variant="outline"
-                disabled={!ready || !!exporting || !filtered.length}
+                disabled={!ready || !!exporting || !filtered.length || !hasExport}
                 onClick={() => void exportData('pdf')}
               >
                 <FileText className="mr-2 h-4 w-4" />
@@ -414,7 +521,7 @@ export default function MotoboyMonthlyReports({
               </Button>
               <Button
                 variant="outline"
-                disabled={!ready || !!exporting || !filtered.length}
+                disabled={!ready || !!exporting || !filtered.length || !hasExport}
                 onClick={() => void exportData('xlsx')}
               >
                 <FileSpreadsheet className="mr-2 h-4 w-4" />

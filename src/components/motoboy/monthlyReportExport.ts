@@ -5,6 +5,7 @@ import {
   timeLabel,
   type MonthlySection,
   type DayReport,
+  type RideDetail,
 } from './monthlyReportModel';
 
 type Cell = string | number | null;
@@ -31,9 +32,39 @@ const total = (sections: MonthlySection[]) => ({
   km: Math.round(sections.reduce((sum, s) => sum + s.totalKm, 0) * 10) / 10,
   missing: sections.reduce((sum, s) => sum + s.incompleteKmDays, 0),
 });
-export function reportSheets(sections: MonthlySection[]): Sheet[] {
+export type ReportExportOptions = {
+  summary: boolean;
+  journeys: boolean;
+  rides: boolean;
+  rideFilter: 'all' | 'completed' | 'assigned';
+};
+export const defaultReportExportOptions: ReportExportOptions = {
+  summary: true,
+  journeys: true,
+  rides: true,
+  rideFilter: 'all',
+};
+export const exportDetails = (
+  day: DayReport,
+  filter: ReportExportOptions['rideFilter']
+): RideDetail[] =>
+  day.details.filter((ride) => {
+    if (filter === 'assigned') return ride.kind === 'assignment' && !!ride.assignedAt;
+    if (filter === 'completed')
+      return (
+        !!ride.completedAt &&
+        (ride.status === 'Concluída' || ride.status === 'Concluída (excluída)') &&
+        (ride.kind === 'completion' ||
+          dateLabel(day.date) === dateTimeLabel(ride.completedAt).slice(0, 10))
+      );
+    return true;
+  });
+export function reportSheets(
+  sections: MonthlySection[],
+  options = defaultReportExportOptions
+): Sheet[] {
   const t = total(sections);
-  return [
+  const sheets: Sheet[] = [
     {
       name: 'Resumo mensal',
       headers: [
@@ -123,7 +154,7 @@ export function reportSheets(sections: MonthlySection[]): Sheet[] {
       total: false,
       rows: sections.flatMap((s) =>
         s.days.flatMap((d) =>
-          d.details.map((r) => [
+          exportDetails(d, options.rideFilter).map((r) => [
             s.person.name,
             dateLabel(d.date),
             r.kind === 'completion' ? 'Conclusão' : 'Designação',
@@ -138,6 +169,7 @@ export function reportSheets(sections: MonthlySection[]): Sheet[] {
       ),
     },
   ];
+  return sheets.filter((_, index) => [options.summary, options.journeys, options.rides][index]);
 }
 const xml = (v: string) =>
   v
@@ -202,10 +234,15 @@ function sheetXml(sheet: Sheet) {
   const last = col(sheet.headers.length - 1);
   return `${declaration}<worksheet xmlns="${ns}"><dimension ref="A1:${last}${all.length}"/><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/><selection pane="bottomLeft" activeCell="A2" sqref="A2"/></sheetView></sheetViews><sheetFormatPr defaultRowHeight="19"/><cols>${sheet.widths.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join('')}</cols><sheetData>${rows}</sheetData>${sheet.rows.length ? `<autoFilter ref="A1:${last}${Math.max(1, all.length - (sheet.total ? 1 : 0))}"/>` : ''}</worksheet>`;
 }
-export async function buildMonthlyXlsx(sections: MonthlySection[], month: string) {
+export async function buildMonthlyXlsx(
+  sections: MonthlySection[],
+  month: string,
+  options = defaultReportExportOptions
+) {
   const { default: JSZip } = await import('jszip');
   const zip = new JSZip();
-  const sheets = reportSheets(sections);
+  const sheets = reportSheets(sections, options);
+  if (!sheets.length) throw new Error('Select at least one report section');
   const nsTypes = 'http://schemas.openxmlformats.org/package/2006/content-types';
   zip.file(
     '[Content_Types].xml',
@@ -276,7 +313,13 @@ function wrap(value: Cell, width: number) {
   if (current || !lines.length) lines.push(current);
   return lines;
 }
-export function buildMonthlyPdf(sections: MonthlySection[], month: string) {
+export function buildMonthlyPdf(
+  sections: MonthlySection[],
+  month: string,
+  options = defaultReportExportOptions
+) {
+  if (!options.summary && !options.journeys && !options.rides)
+    throw new Error('Select at least one report section');
   const pages: string[] = [];
   let ops: string[] = [];
   let y = 0;
@@ -386,67 +429,69 @@ export function buildMonthlyPdf(sections: MonthlySection[], month: string) {
     y -= 14;
   };
   const t = total(sections);
-  table(
-    'Resumo mensal',
-    ['Motoboy', 'Dias jornada', 'Designações', 'Concluídas', 'Km registrados', 'Dias sem km'],
-    [236, 105, 110, 105, 115, 115],
-    [
-      ...sections.map((s) => [
-        s.person.name,
-        s.journeyDays,
-        s.totalAssigned,
-        s.totalCompleted,
-        kmLabel(s.totalKm),
-        s.incompleteKmDays,
-      ]),
-      ['TOTAL DO MÊS', t.days, t.assigned, t.completed, kmLabel(t.km), t.missing],
-    ],
-    true
-  );
-  for (const s of sections) {
-    const person = s.person.name.replace(/\s+/g, ' ').slice(0, 95);
+  if (options.summary)
     table(
-      `${person} | Jornadas`,
+      'Resumo mensal',
+      ['Motoboy', 'Dias jornada', 'Designações', 'Concluídas', 'Km registrados', 'Dias sem km'],
+      [236, 105, 110, 105, 115, 115],
       [
-        'Data',
-        'Início',
-        'Fim',
-        'Km inicial',
-        'Km final',
-        'Km dia',
-        'Designadas',
-        'Concluídas',
-        'Situação',
-      ],
-      [78, 72, 72, 94, 94, 82, 80, 80, 134],
-      [
-        ...s.days.map((d) => [
-          dateLabel(d.date),
-          timeLabel(d.startedAt),
-          timeLabel(d.endedAt),
-          kmLabel(d.startKm),
-          kmLabel(d.endKm),
-          kmLabel(d.km),
-          d.assigned,
-          d.completed,
-          journeyStatus(d),
-        ]),
-        [
-          'TOTAL',
-          '—',
-          '—',
-          '—',
-          '—',
-          kmLabel(s.totalKm),
+        ...sections.map((s) => [
+          s.person.name,
+          s.journeyDays,
           s.totalAssigned,
           s.totalCompleted,
-          `${s.incompleteKmDays} sem km`,
-        ],
+          kmLabel(s.totalKm),
+          s.incompleteKmDays,
+        ]),
+        ['TOTAL DO MÊS', t.days, t.assigned, t.completed, kmLabel(t.km), t.missing],
       ],
       true
     );
+  for (const s of sections) {
+    const person = s.person.name.replace(/\s+/g, ' ').slice(0, 95);
+    if (options.journeys)
+      table(
+        `${person} | Jornadas`,
+        [
+          'Data',
+          'Início',
+          'Fim',
+          'Km inicial',
+          'Km final',
+          'Km dia',
+          'Designadas',
+          'Concluídas',
+          'Situação',
+        ],
+        [78, 72, 72, 94, 94, 82, 80, 80, 134],
+        [
+          ...s.days.map((d) => [
+            dateLabel(d.date),
+            timeLabel(d.startedAt),
+            timeLabel(d.endedAt),
+            kmLabel(d.startKm),
+            kmLabel(d.endKm),
+            kmLabel(d.km),
+            d.assigned,
+            d.completed,
+            journeyStatus(d),
+          ]),
+          [
+            'TOTAL',
+            '—',
+            '—',
+            '—',
+            '—',
+            kmLabel(s.totalKm),
+            s.totalAssigned,
+            s.totalCompleted,
+            `${s.incompleteKmDays} sem km`,
+          ],
+        ],
+        true
+      );
     const details = s.days.flatMap((d) =>
-      d.details.map((r) => [
+      exportDetails(d, options.rideFilter).map((r) => [
         dateLabel(d.date),
         r.kind === 'completion' ? 'Conclusão' : 'Designação',
         dateTimeLabel(r.assignedAt),
@@ -457,7 +502,7 @@ export function buildMonthlyPdf(sections: MonthlySection[], month: string) {
         r.status,
       ])
     );
-    if (details.length)
+    if (options.rides)
       table(
         `${person} | Corridas`,
         [
@@ -471,7 +516,7 @@ export function buildMonthlyPdf(sections: MonthlySection[], month: string) {
           'Situação',
         ],
         [63, 61, 92, 92, 116, 166, 105, 91],
-        details
+        details.length ? details : [['—', '—', '—', '—', 'Sem registros para o filtro', '', '', '']]
       );
   }
   if (ops.length) pages.push(ops.join('\n'));
