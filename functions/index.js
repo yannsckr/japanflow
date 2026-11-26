@@ -65,6 +65,7 @@ exports.motoboyJourney = require('./motoboyJourney.cjs').motoboyJourney;
 exports.motoboyNativeSession = require('./motoboyNativeSession.cjs').motoboyNativeSession;
 
 exports.motoboyRideTransition = require('./motoboyRideTransitions.cjs').motoboyRideTransition;
+exports.motoboyRideReportHistory = require('./motoboyRideReportHistory.cjs').motoboyRideReportHistory;
 
 // Notificações Android: novas corridas, mensagens e ocorrências.
 const japanFlowNotifications = require('./cosmosNotifications.js');

@@ -801,11 +801,11 @@ service cloud.firestore {
       // Permite consultar a jornada do proprio usuario mesmo antes de o documento existir.
       // A Function e a unica responsavel por criar/alterar os registros.
       allow get: if isActive() && (
-        canViewJourneyReports()
+        managesMotoboyRides()
         || journeyId.matches('^' + currentUserId() + '_[0-9]{4}-[0-9]{2}-[0-9]{2}$')
       );
       allow list: if isActive() && (
-        canViewJourneyReports() || resource.data.user_id == currentUserId()
+        managesMotoboyRides() || resource.data.user_id == currentUserId()
       );
       allow create, update, delete: if false;
     }
@@ -1021,6 +1021,12 @@ service cloud.firestore {
         && getAfter(taskPath).data.delivery_address == r.location;
     }
 
+    // Monthly operational history: only the backend writes; dispatch managers read.
+    match /motoboy_ride_report_events/{eventId} {
+      allow get, list: if isActive() && managesMotoboyRides();
+      allow create, update, delete: if false;
+    }
+
     match /motoboy_assignments/{rideId} {
       allow read: if isActive();
       // Operadores designam/alteram; Vendas cria apenas pendencias ligadas a pedidos.
@@ -1068,6 +1074,7 @@ service cloud.firestore {
         && collection != 'motoboy_telemetry'
         && collection != 'motoboy_journey_telemetry'
         && collection != 'motoboy_assignments'
+        && collection != 'motoboy_ride_report_events'
         && collection != 'motoboy_device_tokens'
         && collection != 'motoboy_occurrences'
         && collection != 'motoboy_daily_reports'

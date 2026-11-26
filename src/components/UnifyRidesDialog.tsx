@@ -11,7 +11,15 @@ import {
 } from '@/components/ui/select';
 import { Layers, Bike } from 'lucide-react';
 import { db } from '@/lib/firebase';
-import { addDoc, collection, deleteDoc, doc, getDoc, Timestamp } from 'firebase/firestore';
+import {
+  addDoc,
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  Timestamp,
+  serverTimestamp,
+} from 'firebase/firestore';
 import { toast } from 'sonner';
 import { MotoboyAssignment } from '@/hooks/useDepartmental';
 import { cn } from '@/lib/utils';
@@ -208,6 +216,9 @@ const UnifyRidesDialog = ({
       await addDoc(collection(db, 'motoboy_assignments'), {
         description: unifiedDesc,
         assigned_to: currentGroup.motoboyId,
+        assigned_at: serverTimestamp(),
+        // A summary of already completed rides is not a new delivery.
+        report_summary_only: allCompleted,
         assigned_by: currentUserId,
         ride_value: unifiedValue,
         client_name: unifiedClient.slice(0, 200),

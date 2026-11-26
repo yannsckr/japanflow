@@ -155,7 +155,7 @@ exports.googleRoutePlanner = onCall(cfg, async (request) => {
     const ride = snapshot.data();
     if (ride.assigned_to !== userId && ride.assigned_by !== userId) {
       const permission = await db.doc(`user_feature_permissions/motoboy_management__${userId}`).get();
-      if (!(identity.role === 'admin' || user.role === 'admin' || userId === 'emp-1' || permission.data()?.enabled === true))
+      if (!(identity.role === 'admin' || user.role === 'admin' || userId === 'emp-1' || (Array.isArray(user.sectors) && user.sectors.includes('expedicao')) || permission.data()?.enabled === true))
         throw new HttpsError('permission-denied', 'Sem acesso à corrida.');
     }
     // Trajeto associado a rota tem distância por trecho calculada na designação.
@@ -277,6 +277,7 @@ exports.googleRoutePlanner = onCall(cfg, async (request) => {
       }
       refs.forEach((ref, i) => tx.update(ref, {
         assigned_to: motoboyId, assignee_id: motoboyId, sector: 'motoboys',
+        ...(!snaps[i].data().assigned_to ? { assigned_at: FieldValue.serverTimestamp() } : {}),
         route_id: routeId, route_order: i + 1, route_priority: stops[i].priority,
         destination_place_id: stops[i].placeId,
         location: boundedString(stops[i].address, 400),

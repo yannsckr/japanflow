@@ -14,6 +14,8 @@ import {
   query,
   Timestamp,
   serverTimestamp,
+  deleteField,
+  runTransaction,
   updateDoc,
   where,
 } from 'firebase/firestore';
@@ -117,6 +119,7 @@ export interface MotoboyAssignment {
   description: string;
   assignedTo: string | null;
   assignedBy: string;
+  assignedAt?: string | null;
   status: string;
   notes: string | null;
   createdAt: string;
@@ -352,6 +355,7 @@ export const useDepartmental = () => {
               description: r.description || '',
               assignedTo: r.assigned_to || null,
               assignedBy: r.assigned_by || '',
+              assignedAt: toIso(r.assigned_at),
               status: r.status || 'pending',
               notes: r.notes || null,
               createdAt: toIso(r.created_at) || new Date().toISOString(),
@@ -715,6 +719,7 @@ export const useDepartmental = () => {
       const createdRide = await addDoc(collection(db, 'motoboy_assignments'), {
         description: desc,
         assigned_to: assignedTo,
+        assigned_at: serverTimestamp(),
         assigned_by: assignedBy,
         ride_value: rideValue || 15,
         client_name: clientName || '',
@@ -855,7 +860,36 @@ export const useDepartmental = () => {
         update.scheduled_for = data.scheduledFor;
       }
 
-      await updateDoc(doc(db, 'motoboy_assignments', id), update);
+      // Read the current assignment in the transaction: do not reset the time
+      // when an operator simply saves an already assigned ride.
+      if (data.assignedTo !== undefined) {
+        const ref = doc(db, 'motoboy_assignments', id);
+        await runTransaction(db, async (tx) => {
+          const live = await tx.get(ref);
+          if (!live.exists()) throw new Error('Entrega inexistente.');
+          const record = live.data();
+          const cached = motoboyAssignments.find((ride) => ride.id === id);
+          if (
+            data.assignedTo &&
+            (!['pending', 'pending_approval'].includes(record.status) ||
+              (cached &&
+                (record.assigned_to || null) !== cached.assignedTo &&
+                record.assigned_to !== data.assignedTo))
+          ) {
+            throw new Error('A designação foi alterada por outro operador. Atualize a lista.');
+          }
+          const patch = { ...update };
+          if (
+            data.assignedTo !== (record.assigned_to || null) ||
+            (data.assignedTo && record.status === 'pending_approval')
+          ) {
+            patch.assigned_at = data.assignedTo ? serverTimestamp() : null;
+          }
+          tx.update(ref, patch);
+        });
+      } else {
+        await updateDoc(doc(db, 'motoboy_assignments', id), update);
+      }
 
       const current = motoboyAssignments.find((a) => a.id === id);
       if (!current) return;
@@ -938,6 +972,85 @@ export const useDepartmental = () => {
     [motoboyAssignments]
   );
 
+  // Edits the pending delivery only; the original sales order is not changed.
+  // Transaction prevents an edit racing with dispatch or route creation.
+  const editPendingMotoboyDelivery = useCallback(
+    async (id: string, clientName: string, location: string) => {
+      const client = clientName.trim();
+      const address = location.trim();
+      if (!client || client.length > 180 || !address || address.length > 450) {
+        throw new Error('Informe nome (até 180 caracteres) e endereço (até 450 caracteres).');
+      }
+      const ref = doc(db, 'motoboy_assignments', id);
+      const changedAddress = await runTransaction(db, async (tx) => {
+        const snap = await tx.get(ref);
+        if (!snap.exists()) throw new Error('Entrega não encontrada.');
+        const ride = snap.data();
+        if (
+          !['pending', 'pending_approval'].includes(ride.status) ||
+          (ride.status === 'pending' && ride.assigned_to) ||
+          ride.route_id
+        ) {
+          throw new Error('A entrega foi designada ou faz parte de uma rota. Atualize a lista.');
+        }
+        const oldName = String(ride.client_name || '');
+        const oldDescription = String(ride.description || '');
+        const description =
+          !oldDescription || oldDescription === oldName
+            ? client
+            : oldName && oldDescription === `Entrega: ${oldName}`
+              ? `Entrega: ${client}`
+              : oldDescription;
+        const taskId =
+          typeof ride.task_id === 'string' && ride.task_id !== ride.source_order_task_id
+            ? ride.task_id
+            : null;
+        const taskRef = taskId ? doc(db, 'tasks', taskId) : null;
+        const linkedTask = taskRef ? await tx.get(taskRef) : null;
+        const addressChanged = address !== String(ride.location || '');
+        const patch: Record<string, unknown> = {
+          client_name: client,
+          description,
+          location: address,
+          updated_at: serverTimestamp(),
+        };
+        if (addressChanged) {
+          for (const field of [
+            'expected_distance_meters',
+            'expected_leg_meters',
+            'expected_return_meters',
+            'expected_route_total_meters',
+            'expected_distance_calculated_at',
+            'destination_place_id',
+          ])
+            patch[field] = deleteField();
+        }
+        tx.update(ref, patch);
+        if (taskRef && linkedTask?.exists()) {
+          tx.update(taskRef, {
+            title: `🏍️ Corrida: ${client}`,
+            description: [
+              description,
+              `Cliente: ${client}`,
+              `Local: ${address}`,
+              ride.ride_value ? `Valor: R$ ${Number(ride.ride_value).toFixed(2)}` : '',
+            ]
+              .filter(Boolean)
+              .join(' • '),
+            updated_at: serverTimestamp(),
+          });
+        }
+        return addressChanged;
+      });
+      if (changedAddress) {
+        void estimateRideDistance({ action: 'estimateRideAndPersist', rideId: id }).catch((error) =>
+          console.warn('[motoboy] km previsto pendente', error)
+        );
+      }
+    },
+    []
+  );
+
   // Redistribuicao de corrida autorizada, incluindo registros historicos pendentes de aprovacao.
   // O metodo existente cria a task vinculada quando necessario.
   const designateMotoboyRide = useCallback(
@@ -1003,6 +1116,7 @@ export const useDepartmental = () => {
     deleteMotoboyAssignment,
     deleteMotoboyDelivery,
     updateMotoboyAssignment,
+    editPendingMotoboyDelivery,
     unassignMotoboy,
     designateMotoboyRide,
   };

@@ -13,12 +13,14 @@ import {
   UserPlus,
   UserRound,
   Trash2,
+  Pencil,
+  ArrowLeft,
+  FileSpreadsheet,
 } from 'lucide-react';
 import type { MotoboyAssignment } from '@/hooks/useDepartmental';
 import RoutePlanner from '@/components/motoboy/RoutePlanner';
 import GoogleMotoboyMap from '@/components/motoboy/GoogleMotoboyMap';
 import MotoboyMonthlyReports from '@/components/motoboy/MotoboyMonthlyReports';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import MotoboyRideDetailsDialog from '@/components/motoboy/MotoboyRideDetailsDialog';
 import { toast } from 'sonner';
@@ -43,6 +45,7 @@ interface Props {
   onDesignateRide: (rideId: string, motoboyId: string) => Promise<void>;
   onReassignRide: (rideId: string, motoboyId: string) => Promise<void>;
   onDeleteRide: (rideId: string) => Promise<void>;
+  onEditRide: (rideId: string, clientName: string, address: string) => Promise<void>;
   onOpenOverview: () => void;
 }
 
@@ -107,12 +110,37 @@ export default function MotoboyOperationsDashboard({
   onDesignateRide,
   onReassignRide,
   onDeleteRide,
+  onEditRide,
   onOpenOverview,
 }: Props) {
   const [selectedId, setSelectedId] = useState(isMotoboyOnly ? currentUserId : 'all');
   const [day, setDay] = useState(() => localDay(new Date()));
   const [search, setSearch] = useState('');
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [monthlyOpen, setMonthlyOpen] = useState(false);
+  const [editingRide, setEditingRide] = useState<MotoboyAssignment | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editAddress, setEditAddress] = useState('');
+  const [editBusy, setEditBusy] = useState(false);
+  const openEdit = (ride: MotoboyAssignment) => {
+    setEditName(ride.clientName || ride.description);
+    setEditAddress(ride.location || '');
+    setEditingRide(ride);
+  };
+  const saveEdit = async () => {
+    if (!editingRide || editBusy || !canManage || !editName.trim() || !editAddress.trim()) return;
+    setEditBusy(true);
+    try {
+      await onEditRide(editingRide.id, editName, editAddress);
+      setEditingRide(null);
+      toast.success('Entrega atualizada.');
+    } catch (error) {
+      console.error('[motoboy] editar entrega', error);
+      toast.error(error instanceof Error ? error.message : 'Não foi possível editar a entrega.');
+    } finally {
+      setEditBusy(false);
+    }
+  };
   const [plannerOpen, setPlannerOpen] = useState(false);
   const [rideDetails, setRideDetails] = useState<MotoboyAssignment | null>(null);
   const [designatingId, setDesignatingId] = useState<string | null>(null);
@@ -124,7 +152,7 @@ export default function MotoboyOperationsDashboard({
     const target = ride.clientName || ride.description || ride.id;
     const warning =
       ride.status === 'accepted' || ride.status === 'completed'
-        ? 'Esta corrida já foi iniciada ou concluída. A exclusão não poderá ser desfeita e removerá o registro operacional da corrida.'
+        ? 'Esta corrida já foi iniciada ou concluída. A exclusão não poderá ser desfeita na lista operacional. O histórico mensal será preservado após o registro pelo servidor.'
         : 'A entrega deixará de aparecer para designação e para o motoboy.';
     if (
       !window.confirm(
@@ -213,6 +241,21 @@ export default function MotoboyOperationsDashboard({
 
   const designatedRides = scoped.filter((a) => !!a.assignedTo).sort(newestFirst);
 
+  if (monthlyOpen && canManage && !isMotoboyOnly) {
+    return (
+      <section className="jf-motoboy-board min-w-0 space-y-4 rounded-2xl p-3 sm:p-5">
+        <Button variant="outline" size="sm" onClick={() => setMonthlyOpen(false)}>
+          <ArrowLeft className="mr-2 h-4 w-4" /> Voltar para Motoboys
+        </Button>
+        <MotoboyMonthlyReports
+          motoboys={people}
+          initialMotoboy={selected}
+          initialMonth={day.slice(0, 7)}
+        />
+      </section>
+    );
+  }
+
   return (
     <section
       className="jf-motoboy-board min-w-0 space-y-4 rounded-2xl p-3 sm:p-5"
@@ -284,6 +327,17 @@ export default function MotoboyOperationsDashboard({
               </SelectContent>
             </Select>
           </div>
+          {canManage && !isMotoboyOnly && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-9 gap-1.5 px-3 text-xs"
+              onClick={() => setMonthlyOpen(true)}
+            >
+              <FileSpreadsheet className="h-4 w-4" /> Acompanhamento Mensal
+            </Button>
+          )}
           <Button
             type="button"
             size="icon"
@@ -351,7 +405,17 @@ export default function MotoboyOperationsDashboard({
                       #{a.id.slice(0, 6)}
                     </span>
                   </div>
-                  <div className="flex justify-end">
+                  <div className="flex flex-wrap justify-end gap-1">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 gap-1 px-2 text-xs"
+                      disabled={editBusy || !!a.routeId || deletingId !== null}
+                      onClick={() => openEdit(a)}
+                    >
+                      <Pencil className="h-3.5 w-3.5" /> Editar entrega
+                    </Button>
                     <Button
                       type="button"
                       size="sm"
@@ -699,6 +763,70 @@ export default function MotoboyOperationsDashboard({
         </div>
       </div>
 
+      <Dialog
+        open={!!editingRide}
+        onOpenChange={(open) => {
+          if (!open && !editBusy) setEditingRide(null);
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Editar entrega</DialogTitle>
+          </DialogHeader>
+          <form
+            className="space-y-4"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void saveEdit();
+            }}
+          >
+            <div className="space-y-1.5">
+              <label htmlFor="jf-edit-client" className="text-sm font-medium">
+                Nome do cliente
+              </label>
+              <Input
+                id="jf-edit-client"
+                value={editName}
+                onChange={(event) => setEditName(event.target.value)}
+                required
+                maxLength={180}
+                disabled={editBusy}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label htmlFor="jf-edit-address" className="text-sm font-medium">
+                Endereço completo
+              </label>
+              <textarea
+                id="jf-edit-address"
+                rows={3}
+                value={editAddress}
+                onChange={(event) => setEditAddress(event.target.value)}
+                required
+                maxLength={450}
+                disabled={editBusy}
+                className="w-full rounded-md border border-input bg-background p-3 text-sm"
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Apenas os dados da entrega serão alterados. O pedido original será preservado.
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={editBusy}
+                onClick={() => setEditingRide(null)}
+              >
+                Cancelar
+              </Button>
+              <Button type="submit" disabled={editBusy || !editName.trim() || !editAddress.trim()}>
+                {editBusy ? 'Salvando…' : 'Salvar alterações'}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
       <MotoboyRideDetailsDialog ride={rideDetails} onClose={() => setRideDetails(null)} />
 
       <Dialog open={plannerOpen} onOpenChange={setPlannerOpen}>
