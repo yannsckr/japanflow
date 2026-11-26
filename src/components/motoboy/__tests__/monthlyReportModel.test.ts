@@ -55,7 +55,7 @@ describe('monthly motoboy telemetry', () => {
   });
   it('does not misrepresent creation as designation for legacy rides', () => {
     const section = rider(report(legacy));
-    expect(section.totalAssigned).toBe(0);
+    expect(section.totalAssigned).toBe(1);
     expect(section.days[0].details[0].assignedAt).toBeNull();
     expect(section.days[0].date).toBe('2026-11-26');
   });

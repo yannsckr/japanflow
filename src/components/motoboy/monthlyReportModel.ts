@@ -259,7 +259,7 @@ export function buildMonthlyReport(
       };
       const row = getDay(segment.userId, segment.referenceDay);
       if (row) {
-        if (segment.assignedAt) row.assigned++;
+        row.assigned++;
         row.details.push(detail);
       }
       if (completion === segment) {

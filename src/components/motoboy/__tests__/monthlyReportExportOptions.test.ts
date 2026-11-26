@@ -66,6 +66,12 @@ describe('monthly report export options', () => {
     expect(sheets[2].rows).toHaveLength(1);
     expect(sheets[0].rows[0][3]).toBe(1);
     expect(exportDetails(sections[0].days[0], 'assigned')).toHaveLength(2);
+    const day = sections[0].days[0];
+    const legacyDay = {
+      ...day,
+      details: day.details.map((ride) => ({ ...ride, assignedAt: null })),
+    };
+    expect(exportDetails(legacyDay, 'assigned')).toHaveLength(2);
     expect(buildMonthlyPdf(sections, '2026-11', options)).not.toContain('Cliente B');
   });
 });

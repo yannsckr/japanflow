@@ -661,7 +661,9 @@ export default function MotoboyMonthlyReports({
                           {active.day.details.map((ride) => (
                             <tr key={ride.id} className="border-b border-border/60">
                               <td className="whitespace-nowrap p-2">
-                                {dateTimeLabel(ride.assignedAt)}
+                                {ride.assignedAt
+                                  ? dateTimeLabel(ride.assignedAt)
+                                  : 'Horário indisponível'}
                               </td>
                               <td className="whitespace-nowrap p-2">
                                 {dateTimeLabel(ride.completedAt)}
@@ -753,7 +755,7 @@ export default function MotoboyMonthlyReports({
                   <SelectContent>
                     <SelectItem value="all">Todos os registros</SelectItem>
                     <SelectItem value="completed">Somente concluídas no dia</SelectItem>
-                    <SelectItem value="assigned">Somente designações registradas</SelectItem>
+                    <SelectItem value="assigned">Somente designações</SelectItem>
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">

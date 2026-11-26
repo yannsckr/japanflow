@@ -49,7 +49,7 @@ export const exportDetails = (
   filter: ReportExportOptions['rideFilter']
 ): RideDetail[] =>
   day.details.filter((ride) => {
-    if (filter === 'assigned') return ride.kind === 'assignment' && !!ride.assignedAt;
+    if (filter === 'assigned') return ride.kind === 'assignment';
     if (filter === 'completed')
       return (
         !!ride.completedAt &&
@@ -70,7 +70,7 @@ export function reportSheets(
       headers: [
         'Motoboy',
         'Dias com jornada',
-        'Designações registradas',
+        'Designações',
         'Corridas concluídas',
         'Km registrados',
         'Dias sem km válido',
