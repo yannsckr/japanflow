@@ -100,14 +100,14 @@ exports.googleRoutePlanner = onCall(cfg, async (request) => {
     const phone = boundedString(request.data?.phone, 40);
     const address = boundedString(request.data?.address, 450);
     const clientType = request.data?.clientType;
-    if (!companyName || !contactPerson || !phone || !address || !['pf', 'pj'].includes(clientType))
+    if (!companyName || !address || !['pf', 'pj'].includes(clientType))
       throw new HttpsError('invalid-argument', 'Dados obrigatórios inválidos.');
     // O cálculo usa Google Routes (DRIVE), não distância em linha reta.
     const result = await google('https://routes.googleapis.com/directions/v2:computeRoutes', {
       origin: { address: ORIGIN.address }, destination: { address },
       travelMode: 'DRIVE', languageCode: 'pt-BR', routingPreference: 'TRAFFIC_UNAWARE',
     }, 'routes.distanceMeters');
-    const distanceMeters = Number(result.routes?.[0]?.distanceMeters);
+    const distanceMeters = result.routes?.[0]?.distanceMeters;
     if (!Number.isFinite(distanceMeters) || distanceMeters < 0 || distanceMeters > 500000)
       throw new HttpsError('failed-precondition', 'Não foi possível calcular uma distância rodoviária válida. Confirme o endereço.');
     const values = {
@@ -140,7 +140,7 @@ exports.googleRoutePlanner = onCall(cfg, async (request) => {
       origin: { address: ORIGIN.address }, destination: { address },
       travelMode: 'DRIVE', languageCode: 'pt-BR', routingPreference: 'TRAFFIC_UNAWARE',
     }, 'routes.distanceMeters');
-    const meters = Number(result.routes?.[0]?.distanceMeters);
+    const meters = result.routes?.[0]?.distanceMeters;
     if (!Number.isFinite(meters) || meters < 0 || meters > 500000)
       throw new HttpsError('failed-precondition', 'Distância rodoviária indisponível.');
     return { distanceMeters: Math.round(meters), originAddress: ORIGIN.address };
@@ -162,7 +162,8 @@ exports.googleRoutePlanner = onCall(cfg, async (request) => {
     if (ride.route_id && typeof ride.expected_leg_meters === 'number') {
       return { distanceMeters: ride.expected_leg_meters, includesReturn: false, isRouteLeg: true };
     }
-    if (typeof ride.expected_distance_meters === 'number') {
+    if (ride.route_id) throw new HttpsError('failed-precondition', 'Trechos da rota agrupada indisponíveis.');
+    if (typeof ride.expected_distance_meters === 'number' && typeof ride.expected_return_meters === 'number') {
       return { distanceMeters: ride.expected_distance_meters, includesReturn: false, isRouteLeg: false };
     }
     const address = boundedString(ride.location, 450);
@@ -171,15 +172,22 @@ exports.googleRoutePlanner = onCall(cfg, async (request) => {
       origin: { address: ORIGIN.address }, destination: { address },
       travelMode: 'DRIVE', languageCode: 'pt-BR', routingPreference: 'TRAFFIC_UNAWARE',
     }, 'routes.distanceMeters');
-    const meters = Number(result.routes?.[0]?.distanceMeters);
+    const meters = result.routes?.[0]?.distanceMeters;
     if (!Number.isFinite(meters) || meters < 0 || meters > 500000)
       throw new HttpsError('failed-precondition', 'Distância indisponível.');
     const rounded = Math.round(meters);
+    const back = await google('https://routes.googleapis.com/directions/v2:computeRoutes', {
+      origin: { address }, destination: { address: ORIGIN.address },
+      travelMode: 'DRIVE', languageCode: 'pt-BR', routingPreference: 'TRAFFIC_UNAWARE',
+    }, 'routes.distanceMeters');
+    const returnMeters = back.routes?.[0]?.distanceMeters;
+    if (typeof returnMeters !== 'number' || !Number.isFinite(returnMeters) || returnMeters < 0 || returnMeters > 500000)
+      throw new HttpsError('failed-precondition', 'Distância de retorno indisponível.');
     // Persistir somente se o endereço não foi alterado durante o cálculo.
     await db.runTransaction(async (tx) => {
       const latest = await tx.get(ref);
-      if (!latest.exists || latest.data().location !== ride.location) return;
-      tx.update(ref, { expected_distance_meters: rounded, expected_distance_calculated_at: FieldValue.serverTimestamp() });
+      if (!latest.exists || latest.data().location !== ride.location || latest.data().route_id) return;
+      tx.update(ref, { expected_distance_meters: rounded, expected_return_meters: Math.round(returnMeters), expected_distance_calculated_at: FieldValue.serverTimestamp() });
     });
     return { distanceMeters: rounded, includesReturn: false, isRouteLeg: false };
   }

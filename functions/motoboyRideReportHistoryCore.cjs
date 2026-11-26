@@ -8,6 +8,7 @@ const iso = value => {
     return date && Number.isFinite(date.getTime()) ? date.toISOString() : null;
   } catch { return null; }
 };
+const meters = v => typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : null;
 function projection(value) {
   if (!value || typeof value !== 'object') return null;
   return {
@@ -21,6 +22,11 @@ function projection(value) {
     description: string(value.description),
     location: string(value.location),
     source_order_task_id: string(value.source_order_task_id, 180),
+    completion_source: string(value.completion_source, 80) || null,
+    route_id: string(value.route_id, 180) || null,
+    expected_distance_meters: meters(value.expected_distance_meters),
+    expected_leg_meters: meters(value.expected_leg_meters),
+    expected_return_meters: meters(value.expected_return_meters),
     report_summary_only: value.report_summary_only === true,
   };
 }
@@ -28,7 +34,7 @@ function buildReportEvent(rideId, eventId, before, after) {
   if (typeof rideId !== 'string' || !rideId || typeof eventId !== 'string' || !eventId) throw new Error('Missing report event identity');
   const old = projection(before);
   const next = projection(after);
-  // Ignore route distance, GPS, task links, proofs and other irrelevant updates.
+  // Preserve route distances; ignore GPS, task links and proofs.
   if (JSON.stringify(old) === JSON.stringify(next)) return null;
   if (!old?.assigned_to && !next?.assigned_to) return null;
   return {

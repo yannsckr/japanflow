@@ -1,3 +1,4 @@
+import MotoboyAdminPanel from './MotoboyAdminPanel';
 import { useMemo, useState } from 'react';
 import {
   Bike,
@@ -338,16 +339,18 @@ export default function MotoboyOperationsDashboard({
               <FileSpreadsheet className="h-4 w-4" /> Acompanhamento Mensal
             </Button>
           )}
-          <Button
-            type="button"
-            size="icon"
-            variant="outline"
-            className="h-9 w-9 shrink-0"
-            aria-label="Configurações dos motoboys"
-            onClick={() => setSettingsOpen(true)}
-          >
-            <Settings className="h-4 w-4" />
-          </Button>
+          {canManage && !isMotoboyOnly && (
+            <Button
+              type="button"
+              size="icon"
+              variant="outline"
+              className="h-9 w-9 shrink-0"
+              aria-label="Configurações dos motoboys"
+              onClick={() => setSettingsOpen(true)}
+            >
+              <Settings className="h-4 w-4" />
+            </Button>
+          )}
         </div>
       </header>
 
@@ -841,17 +844,11 @@ export default function MotoboyOperationsDashboard({
       </Dialog>
 
       <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Configurações de Motoboys</DialogTitle>
+            <DialogTitle>Gerenciamento operacional</DialogTitle>
           </DialogHeader>
-          <div className="space-y-3 text-sm text-muted-foreground">
-            <p>Os controles operacionais desta aba usam o tema global do JapanFlow.</p>
-            <p>
-              Selecione um motoboy ou “Todos” no cabeçalho para alternar jornadas e posições GPS.
-            </p>
-            <p>O planejamento usa o mecanismo de rotas existente e não altera permissões.</p>
-          </div>
+          {settingsOpen && <MotoboyAdminPanel motoboys={motoboys} initialDay={day} />}
         </DialogContent>
       </Dialog>
     </section>

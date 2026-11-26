@@ -127,8 +127,15 @@ service firebase.storage {
     }
 
     // Fotos de odômetro: acesso do titular ou do administrador; nunca públicas.
+    function odometerManager() {
+      let id = 'motoboy_management__' + currentUserId();
+      let grant = /databases/(default)/documents/user_feature_permissions/$(id);
+      return firestore.get(grant).data.enabled == true
+        && firestore.get(grant).data.user_id == currentUserId()
+        && firestore.get(grant).data.feature_key == 'motoboy_management';
+    }
     match /odometer-proof/{userId}/{fileName} {
-      allow read: if activeUser() && (currentUserId() == userId || adminUser());
+      allow read: if activeUser() && (currentUserId() == userId || adminUser() || odometerManager());
       allow create: if activeUser() && currentUserId() == userId
         && resource == null
         && fileName.matches('^[A-Za-z0-9_-]{12,100}[.](jpg|jpeg|png|webp)$')

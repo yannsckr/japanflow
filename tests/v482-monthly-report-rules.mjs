@@ -93,7 +93,11 @@ try {
   await assertFails(
     updateDoc(doc(db('sales'), 'motoboy_assignments', 'ride'), { location: 'Nao autorizado' })
   );
-  console.log('V48.2 MONTHLY REPORT RULES: ALL ASSERTIONS PASSED');
+  for (const uid of ['dispatch', 'admin', 'granted', 'sales', 'rider']) {
+    await assertFails(setDoc(doc(db(uid), 'motoboy_admin_audit', 'forged'), { actor: uid }));
+    await assertFails(getDocs(collection(db(uid), 'motoboy_admin_audit')));
+  }
+  console.log('V48.3 MONTHLY REPORT RULES: ALL ASSERTIONS PASSED');
 } finally {
   await env.cleanup();
 }

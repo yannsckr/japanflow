@@ -52,13 +52,8 @@ export default function ClientEditorDialog({
     if (open) setForm(initial || emptyClientForm);
   }, [open, initial]);
   const save = async () => {
-    if (
-      !form.companyName.trim() ||
-      !form.contactPerson.trim() ||
-      !form.phone.trim() ||
-      !form.address.trim()
-    ) {
-      toast.error('Preencha nome, responsável, telefone e endereço.');
+    if (!form.companyName.trim() || !form.address.trim()) {
+      toast.error('Preencha nome e endereço.');
       return;
     }
     setBusy(true);
@@ -111,7 +106,7 @@ export default function ClientEditorDialog({
             />
           </div>
           <div className="grid gap-1.5">
-            <Label>Responsável / Contato</Label>
+            <Label>Responsável / Contato (opcional)</Label>
             <Input
               maxLength={180}
               value={form.contactPerson}
@@ -119,7 +114,7 @@ export default function ClientEditorDialog({
             />
           </div>
           <div className="grid gap-1.5">
-            <Label>Telefone</Label>
+            <Label>Telefone (opcional)</Label>
             <Input
               maxLength={40}
               value={form.phone}

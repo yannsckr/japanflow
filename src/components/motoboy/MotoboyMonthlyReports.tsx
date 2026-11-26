@@ -14,7 +14,8 @@ import {
   YAxis,
   Tooltip,
 } from 'recharts';
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
+import OdometerPhoto from './OdometerPhoto';
 import {
   collection,
   onSnapshot,
@@ -40,7 +41,8 @@ import {
   X,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { db } from '@/lib/firebase';
+import app, { db } from '@/lib/firebase';
+import { getFunctions, httpsCallable } from 'firebase/functions';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -232,9 +234,6 @@ export default function MotoboyMonthlyReports({
       (day) => statusFilter === 'all' || journeyStatus(day) === statusFilter
     ),
   }));
-  const active = visible
-    .flatMap((section) => section.days.map((day) => ({ section, day })))
-    .find(({ section, day }) => expanded === `${month}:${section.person.id}:${day.date}`);
   const trend = Array.from(
     new Set(visible.flatMap((section) => section.days.map((day) => day.date)))
   )
@@ -250,6 +249,28 @@ export default function MotoboyMonthlyReports({
           : null,
       };
     });
+  const [estimating, setEstimating] = useState(false);
+  const estimateMissing = async (ids: string[]) => {
+    if (estimating || !ids.length) return;
+    setEstimating(true);
+    let ok = 0;
+    try {
+      const estimate = httpsCallable(getFunctions(app, 'southamerica-east1'), 'googleRoutePlanner');
+      for (const rideId of ids.slice(0, 10)) {
+        try {
+          await estimate({ action: 'estimateRideAndPersist', rideId });
+          ok++;
+        } catch {
+          /* Missing route or address remains visible as partial. */
+        }
+      }
+      toast.info(
+        `${ok} de ${Math.min(ids.length, 10)} cálculos consultados. Confira as pendências após sincronizar.`
+      );
+    } finally {
+      setEstimating(false);
+    }
+  };
   const selectDay = (key: string) => setExpanded((previous) => (previous === key ? null : key));
   return (
     <section className="min-w-0 space-y-5" aria-label="Acompanhamento mensal dos motoboys">
@@ -259,9 +280,6 @@ export default function MotoboyMonthlyReports({
           <h2 className="mt-1 flex items-center gap-2 text-2xl font-semibold tracking-tight">
             <CalendarDays className="h-6 w-6 text-primary" /> Acompanhamento Mensal
           </h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Jornadas, designações e quilometragem por competência.
-          </p>
         </div>
         <Button
           variant="outline"
@@ -330,7 +348,7 @@ export default function MotoboyMonthlyReports({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {['all', 'Encerrada', 'Sem jornada', 'Em aberto', 'Odômetro incompleto'].map((s) => (
+              {['all', 'Encerrada', 'Sem jornada', 'Odômetro incompleto'].map((s) => (
                 <SelectItem key={s} value={s}>
                   {s === 'all' ? 'Todas as situações' : s}
                 </SelectItem>
@@ -523,19 +541,26 @@ export default function MotoboyMonthlyReports({
                       <h3 className="mb-2 text-sm font-semibold">{section.person.name}</h3>
                     )}
                     <div className="overflow-x-auto">
-                      <table className="w-full min-w-[570px] text-left text-sm">
+                      <table className="w-full min-w-[850px] text-left text-sm">
                         <thead className="bg-muted/60 text-muted-foreground">
                           <tr>
-                            {['Data', 'Jornada', 'Km dia', 'Concluídas', 'Designadas', ''].map(
-                              (label, i) => (
-                                <th
-                                  key={i}
-                                  className="px-3 py-2 text-xs font-medium first:rounded-l-lg last:rounded-r-lg"
-                                >
-                                  {label}
-                                </th>
-                              )
-                            )}
+                            {[
+                              'Data',
+                              'Jornada',
+                              'Odômetro inicial / final',
+                              'Km dia',
+                              'Km previsto',
+                              'Concluídas',
+                              'Designadas',
+                              '',
+                            ].map((label, i) => (
+                              <th
+                                key={i}
+                                className="px-3 py-2 text-xs font-medium first:rounded-l-lg last:rounded-r-lg"
+                              >
+                                {label}
+                              </th>
+                            ))}
                           </tr>
                         </thead>
                         <tbody>
@@ -543,50 +568,233 @@ export default function MotoboyMonthlyReports({
                             const key = `${month}:${section.person.id}:${day.date}`;
                             const open = expanded === key;
                             return (
-                              <tr
-                                key={key}
-                                className={`border-b border-border/60 tabular-nums transition-colors ${open ? 'bg-red-500/10' : 'hover:bg-muted/30'}`}
-                              >
-                                <td className="px-3 py-3">
-                                  <div className={`font-semibold ${open ? 'text-primary' : ''}`}>
-                                    {dateLabel(day.date).slice(0, 5)}
-                                  </div>
-                                  <div className="text-xs text-muted-foreground">
-                                    {DateTime.fromISO(day.date, { zone: ZONE })
-                                      .setLocale('pt-BR')
-                                      .toFormat('ccc')}
-                                  </div>
-                                </td>
-                                <td className="px-3 py-3">
-                                  <span className="rounded-full bg-muted px-2 py-1 text-xs whitespace-nowrap">
-                                    {journeyStatus(day)}
-                                  </span>
-                                </td>
-                                <td className="px-3 py-3">{kmLabel(day.km)}</td>
-                                <td className="px-3 py-3 font-semibold">{day.completed}</td>
-                                <td className="px-3 py-3">{day.assigned}</td>
-                                <td className="px-3 py-3 text-right">
-                                  <Button
-                                    variant="outline"
-                                    size="icon"
-                                    className="h-8 w-8 rounded-full"
-                                    aria-expanded={open}
-                                    aria-label={`Detalhes de ${dateLabel(day.date)} — ${section.person.name}`}
-                                    onClick={() => selectDay(key)}
-                                  >
-                                    {open ? (
-                                      <ChevronDown className="h-4 w-4" />
-                                    ) : (
-                                      <ChevronRight className="h-4 w-4" />
+                              <Fragment key={key}>
+                                <tr
+                                  className={`border-b border-border/60 tabular-nums transition-colors ${open ? 'bg-red-500/10' : 'hover:bg-muted/30'}`}
+                                >
+                                  <td className="px-3 py-3">
+                                    <div className={`font-semibold ${open ? 'text-primary' : ''}`}>
+                                      {dateLabel(day.date).slice(0, 5)}
+                                    </div>
+                                    <div className="text-xs text-muted-foreground">
+                                      {DateTime.fromISO(day.date, { zone: ZONE })
+                                        .setLocale('pt-BR')
+                                        .toFormat('ccc')}
+                                    </div>
+                                  </td>
+                                  <td className="px-3 py-3">
+                                    <span className="rounded-full bg-muted px-2 py-1 text-xs whitespace-nowrap">
+                                      {journeyStatus(day)}
+                                    </span>
+                                    <div className="mt-1 whitespace-nowrap">
+                                      {timeLabel(day.startedAt)} → {timeLabel(day.endedAt)}
+                                    </div>
+                                    {day.administrative && (
+                                      <span className="text-xs text-muted-foreground">
+                                        Correção administrativa
+                                      </span>
                                     )}
-                                  </Button>
-                                </td>
-                              </tr>
+                                  </td>
+                                  <td className="px-3 py-3 whitespace-nowrap">
+                                    {kmLabel(day.startKm)} → {kmLabel(day.endKm)}
+                                  </td>
+                                  <td className="px-3 py-3">{kmLabel(day.km)}</td>
+                                  <td className="px-3 py-3">
+                                    {kmLabel(
+                                      day.expectedMeters == null ? null : day.expectedMeters / 1000
+                                    )}
+                                    {day.expectedMissing ? (
+                                      <span className="block text-xs text-muted-foreground">
+                                        Parcial ({day.expectedMissing} sem cálculo)
+                                      </span>
+                                    ) : null}
+                                  </td>
+                                  <td className="px-3 py-3 font-semibold">{day.completed}</td>
+                                  <td className="px-3 py-3">{day.assigned}</td>
+                                  <td className="px-3 py-3 text-right">
+                                    <Button
+                                      variant="outline"
+                                      size="icon"
+                                      className="h-8 w-8 rounded-full"
+                                      aria-expanded={open}
+                                      aria-label={`Detalhes de ${dateLabel(day.date)} — ${section.person.name}`}
+                                      onClick={() => selectDay(key)}
+                                    >
+                                      {open ? (
+                                        <ChevronDown className="h-4 w-4" />
+                                      ) : (
+                                        <ChevronRight className="h-4 w-4" />
+                                      )}
+                                    </Button>
+                                  </td>
+                                </tr>
+                                {open && (
+                                  <tr>
+                                    <td colSpan={8} className="p-2">
+                                      <article className="overflow-hidden rounded-xl border border-l-[3px] border-l-primary bg-card p-4">
+                                        <header className="flex flex-wrap items-center justify-between gap-2">
+                                          <h3 className="flex items-center gap-2 font-semibold">
+                                            <CalendarDays className="h-5 w-5 text-primary" />{' '}
+                                            {dateLabel(day.date)} · {section.person.name}
+                                          </h3>
+                                          <div className="flex items-center gap-2">
+                                            <span className="text-xs text-muted-foreground">
+                                              {day.details.length} registros
+                                            </span>
+                                            <Button
+                                              size="icon"
+                                              variant="ghost"
+                                              aria-label="Fechar detalhes"
+                                              onClick={() => setExpanded(null)}
+                                            >
+                                              <X className="h-4 w-4" />
+                                            </Button>
+                                          </div>
+                                        </header>
+                                        <div className="my-3 grid grid-cols-2 gap-3 rounded-lg bg-muted/40 p-3 sm:grid-cols-4">
+                                          {[
+                                            { label: 'Início', value: timeLabel(day.startedAt) },
+                                            { label: 'Fim', value: timeLabel(day.endedAt) },
+                                            { label: 'Km inicial', value: kmLabel(day.startKm) },
+                                            { label: 'Km final', value: kmLabel(day.endKm) },
+                                          ].map((item) => (
+                                            <div key={item.label}>
+                                              <p className="text-xs text-muted-foreground">
+                                                {item.label}
+                                              </p>
+                                              <p className="font-medium tabular-nums">
+                                                {item.value}
+                                              </p>
+                                            </div>
+                                          ))}
+                                        </div>
+                                        {day.details.some(
+                                          (r) =>
+                                            r.kind === 'assignment' && r.canEstimate && r.rideId
+                                        ) && (
+                                          <div className="my-3 flex flex-wrap items-center gap-2">
+                                            <Button
+                                              size="sm"
+                                              variant="outline"
+                                              disabled={estimating}
+                                              onClick={() =>
+                                                void estimateMissing(
+                                                  Array.from(
+                                                    new Set(
+                                                      day.details
+                                                        .filter(
+                                                          (r) =>
+                                                            r.kind === 'assignment' &&
+                                                            r.canEstimate &&
+                                                            r.rideId
+                                                        )
+                                                        .map((r) => r.rideId!)
+                                                    )
+                                                  )
+                                                )
+                                              }
+                                            >
+                                              {estimating
+                                                ? 'Calculando…'
+                                                : 'Calcular distâncias pendentes'}
+                                            </Button>
+                                            <span className="text-xs text-muted-foreground">
+                                              Até 10 corridas individuais por vez (Google Routes).
+                                            </span>
+                                          </div>
+                                        )}
+                                        <div className="my-3 grid grid-cols-2 gap-3">
+                                          <OdometerPhoto
+                                            path={day.startPhotoPath}
+                                            label="Abertura"
+                                          />
+                                          <OdometerPhoto
+                                            path={day.endPhotoPath}
+                                            label="Fechamento"
+                                          />
+                                        </div>
+                                        <div className="overflow-x-auto">
+                                          <table className="w-full min-w-[650px] text-left text-xs">
+                                            <thead className="bg-muted/60">
+                                              <tr>
+                                                {[
+                                                  'Designação',
+                                                  'Conclusão',
+                                                  'Cliente',
+                                                  'Endereço',
+                                                  'Situação',
+                                                ].map((label) => (
+                                                  <th key={label} className="p-2 font-medium">
+                                                    {label}
+                                                  </th>
+                                                ))}
+                                              </tr>
+                                            </thead>
+                                            <tbody>
+                                              {day.details.map((ride) => (
+                                                <tr
+                                                  key={ride.id}
+                                                  className="border-b border-border/60"
+                                                >
+                                                  <td className="whitespace-nowrap p-2">
+                                                    {ride.assignedAt
+                                                      ? dateTimeLabel(ride.assignedAt)
+                                                      : 'Horário indisponível'}
+                                                  </td>
+                                                  <td className="whitespace-nowrap p-2">
+                                                    {dateTimeLabel(ride.completedAt)}
+                                                  </td>
+                                                  <td
+                                                    className="p-2 font-medium"
+                                                    title={ride.reference}
+                                                  >
+                                                    {ride.client}
+                                                    <span className="block text-[10px] text-muted-foreground">
+                                                      {ride.kind === 'completion'
+                                                        ? 'Conclusão'
+                                                        : 'Designação'}
+                                                    </span>
+                                                  </td>
+                                                  <td className="p-2 break-words">
+                                                    {ride.address}
+                                                  </td>
+                                                  <td className="p-2">
+                                                    <span
+                                                      className={`rounded-full px-2 py-1 text-xs ${ride.status === 'Concluída' ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'bg-muted text-muted-foreground'}`}
+                                                    >
+                                                      {ride.status}
+                                                    </span>
+                                                    {ride.administrative && (
+                                                      <span className="block text-xs text-muted-foreground">
+                                                        Correção administrativa
+                                                      </span>
+                                                    )}
+                                                  </td>
+                                                </tr>
+                                              ))}
+                                              {!day.details.length && (
+                                                <tr>
+                                                  <td
+                                                    colSpan={5}
+                                                    className="p-3 text-muted-foreground"
+                                                  >
+                                                    Nenhuma corrida registrada neste dia.
+                                                  </td>
+                                                </tr>
+                                              )}
+                                            </tbody>
+                                          </table>
+                                        </div>
+                                      </article>
+                                    </td>
+                                  </tr>
+                                )}
+                              </Fragment>
                             );
                           })}
                           {!section.days.length && (
                             <tr>
-                              <td colSpan={6} className="p-5 text-center text-muted-foreground">
+                              <td colSpan={8} className="p-5 text-center text-muted-foreground">
                                 Nenhum registro para este filtro.
                               </td>
                             </tr>
@@ -594,10 +802,23 @@ export default function MotoboyMonthlyReports({
                         </tbody>
                         <tfoot>
                           <tr className="font-semibold">
-                            <td colSpan={2} className="px-3 py-3 text-xs">
+                            <td colSpan={3} className="px-3 py-3 text-xs">
                               TOTAL MENSAL
                             </td>
                             <td className="px-3 py-3">{kmLabel(section.totalKm)}</td>
+                            <td className="px-3 py-3">
+                              {kmLabel(
+                                section.days.some((d) => d.expectedMeters != null)
+                                  ? section.days.reduce(
+                                      (sum, d) => sum + (d.expectedMeters ?? 0),
+                                      0
+                                    ) / 1000
+                                  : null
+                              )}
+                              {section.days.some((d) => d.expectedMissing) && (
+                                <span className="block text-xs text-muted-foreground">Parcial</span>
+                              )}
+                            </td>
                             <td className="px-3 py-3">{section.totalCompleted}</td>
                             <td className="px-3 py-3">{section.totalAssigned}</td>
                             <td />
@@ -610,92 +831,6 @@ export default function MotoboyMonthlyReports({
                 {!visible.length && (
                   <p className="p-5 text-sm text-muted-foreground">Nenhum motoboy encontrado.</p>
                 )}
-                {active && (
-                  <article className="overflow-hidden rounded-xl border border-l-[3px] border-l-primary bg-card p-4">
-                    <header className="flex flex-wrap items-center justify-between gap-2">
-                      <h3 className="flex items-center gap-2 font-semibold">
-                        <CalendarDays className="h-5 w-5 text-primary" />{' '}
-                        {dateLabel(active.day.date)} · {active.section.person.name}
-                      </h3>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-muted-foreground">
-                          {active.day.details.length} registros
-                        </span>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          aria-label="Fechar detalhes"
-                          onClick={() => setExpanded(null)}
-                        >
-                          <X className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </header>
-                    <div className="my-3 grid grid-cols-2 gap-3 rounded-lg bg-muted/40 p-3 sm:grid-cols-4">
-                      {[
-                        { label: 'Início', value: timeLabel(active.day.startedAt) },
-                        { label: 'Fim', value: timeLabel(active.day.endedAt) },
-                        { label: 'Km inicial', value: kmLabel(active.day.startKm) },
-                        { label: 'Km final', value: kmLabel(active.day.endKm) },
-                      ].map((item) => (
-                        <div key={item.label}>
-                          <p className="text-xs text-muted-foreground">{item.label}</p>
-                          <p className="font-medium tabular-nums">{item.value}</p>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="overflow-x-auto">
-                      <table className="w-full min-w-[650px] text-left text-xs">
-                        <thead className="bg-muted/60">
-                          <tr>
-                            {['Designação', 'Conclusão', 'Cliente', 'Endereço', 'Situação'].map(
-                              (label) => (
-                                <th key={label} className="p-2 font-medium">
-                                  {label}
-                                </th>
-                              )
-                            )}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {active.day.details.map((ride) => (
-                            <tr key={ride.id} className="border-b border-border/60">
-                              <td className="whitespace-nowrap p-2">
-                                {ride.assignedAt
-                                  ? dateTimeLabel(ride.assignedAt)
-                                  : 'Horário indisponível'}
-                              </td>
-                              <td className="whitespace-nowrap p-2">
-                                {dateTimeLabel(ride.completedAt)}
-                              </td>
-                              <td className="p-2 font-medium" title={ride.reference}>
-                                {ride.client}
-                                <span className="block text-[10px] text-muted-foreground">
-                                  {ride.kind === 'completion' ? 'Conclusão' : 'Designação'}
-                                </span>
-                              </td>
-                              <td className="p-2 break-words">{ride.address}</td>
-                              <td className="p-2">
-                                <span
-                                  className={`rounded-full px-2 py-1 text-xs ${ride.status === 'Concluída' ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'bg-muted text-muted-foreground'}`}
-                                >
-                                  {ride.status}
-                                </span>
-                              </td>
-                            </tr>
-                          ))}
-                          {!active.day.details.length && (
-                            <tr>
-                              <td colSpan={5} className="p-3 text-muted-foreground">
-                                Nenhuma corrida registrada neste dia.
-                              </td>
-                            </tr>
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </article>
-                )}
               </div>
             )}
           </div>
@@ -705,7 +840,8 @@ export default function MotoboyMonthlyReports({
               Corridas concluídas são somadas na data da conclusão; designações, na data da
               atribuição. Registros antigos sem horário efetivo aparecem pela data de referência. O
               histórico de exclusões e redesignações começa com a implantação do hotfix e pode levar
-              instantes para ser registrado.
+              instantes para ser registrado. A previsão soma os trechos rodoviários disponíveis das
+              atribuições não canceladas ou substituídas; dados ausentes são parciais, não zero.
             </p>
           </details>
         </>

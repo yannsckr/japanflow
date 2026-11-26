@@ -18,13 +18,14 @@ type Sheet = {
   total: boolean;
 };
 export const journeyStatus = (day: DayReport) =>
-  day.km !== null
-    ? 'Encerrada'
-    : !day.journeyRecorded
-      ? 'Sem jornada'
-      : day.endedAt
-        ? 'Odômetro incompleto'
-        : 'Em aberto';
+  !day.startedAt ? 'Sem jornada' : !day.endedAt ? 'Odômetro incompleto' : 'Encerrada';
+const planned = (d: DayReport): Cell => (d.expectedMeters == null ? null : d.expectedMeters / 1000);
+const plannedStatus = (d: DayReport) =>
+  `${journeyStatus(d)}${d.administrative ? '; correção administrativa' : ''}${d.expectedMissing ? `; previsto parcial (${d.expectedMissing} sem cálculo)` : ''}`;
+const plannedTotal = (days: DayReport[]): Cell =>
+  days.some((d) => d.expectedMeters != null)
+    ? days.reduce((sum, d) => sum + (d.expectedMeters ?? 0), 0) / 1000
+    : null;
 const total = (sections: MonthlySection[]) => ({
   days: sections.reduce((sum, s) => sum + s.journeyDays, 0),
   assigned: sections.reduce((sum, s) => sum + s.totalAssigned, 0),
@@ -100,12 +101,13 @@ export function reportSheets(
         'Km inicial',
         'Km final',
         'Km dia',
+        'Km previsto (parcial se indicado)',
         'Designações',
         'Concluídas',
         'Situação',
       ],
-      widths: [28, 15, 22, 22, 16, 16, 16, 17, 17, 27],
-      kmColumns: [4, 5, 6],
+      widths: [28, 15, 22, 22, 16, 16, 16, 26, 17, 17, 27],
+      kmColumns: [4, 5, 6, 7],
       total: true,
       rows: [
         ...sections.flatMap((s) =>
@@ -117,9 +119,10 @@ export function reportSheets(
             d.startKm,
             d.endKm,
             d.km,
+            planned(d),
             d.assigned,
             d.completed,
-            journeyStatus(d),
+            plannedStatus(d),
           ])
         ),
         [
@@ -130,9 +133,10 @@ export function reportSheets(
           null,
           null,
           t.km,
+          plannedTotal(sections.flatMap((s) => s.days)),
           t.assigned,
           t.completed,
-          `${t.missing} dia(s) sem km válido`,
+          `${t.missing} dia(s) sem km válido; previsto: ${sections.flatMap((s) => s.days).reduce((sum, d) => sum + (d.expectedMissing ?? 0), 0)} sem cálculo`,
         ],
       ],
     },
@@ -163,7 +167,7 @@ export function reportSheets(
             r.client,
             r.address,
             r.reference,
-            r.status,
+            r.administrative ? `${r.status} (administrativa)` : r.status,
           ])
         )
       ),
@@ -459,11 +463,12 @@ export function buildMonthlyPdf(
           'Km inicial',
           'Km final',
           'Km dia',
+          'Km previsto (parcial se indicado)',
           'Designadas',
           'Concluídas',
           'Situação',
         ],
-        [78, 72, 72, 94, 94, 82, 80, 80, 134],
+        [65, 55, 55, 80, 80, 65, 100, 65, 65, 156],
         [
           ...s.days.map((d) => [
             dateLabel(d.date),
@@ -472,9 +477,10 @@ export function buildMonthlyPdf(
             kmLabel(d.startKm),
             kmLabel(d.endKm),
             kmLabel(d.km),
+            planned(d),
             d.assigned,
             d.completed,
-            journeyStatus(d),
+            plannedStatus(d),
           ]),
           [
             'TOTAL',
@@ -483,9 +489,10 @@ export function buildMonthlyPdf(
             '—',
             '—',
             kmLabel(s.totalKm),
+            plannedTotal(s.days),
             s.totalAssigned,
             s.totalCompleted,
-            `${s.incompleteKmDays} sem km`,
+            `${s.incompleteKmDays} sem km; previsto: ${s.days.reduce((sum, d) => sum + (d.expectedMissing ?? 0), 0)} sem cálculo`,
           ],
         ],
         true
@@ -499,7 +506,7 @@ export function buildMonthlyPdf(
         r.client,
         r.address,
         r.reference,
-        r.status,
+        r.administrative ? `${r.status} (administrativa)` : r.status,
       ])
     );
     if (options.rides)

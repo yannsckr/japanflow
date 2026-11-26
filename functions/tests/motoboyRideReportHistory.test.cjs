@@ -20,7 +20,8 @@ test('deletion preserves previous assigned ride, completion and client data', ()
   assert.equal(a.value.before.start_photo_path, undefined);
 });
 test('irrelevant changes do not create history; reassignment does', () => {
-  assert.equal(buildReportEvent('ride-1', 'gps', assigned, { ...assigned, expected_distance_meters: 500 }), null);
+  assert.equal(buildReportEvent('ride-1', 'distance', assigned, { ...assigned, expected_distance_meters: 500 }).value.after.expected_distance_meters, 500);
+  assert.equal(buildReportEvent('ride-1', 'gps', assigned, { ...assigned, gps: 500 }), null);
   assert.equal(buildReportEvent('ride-1', 'pending', null, pending), null);
   const change = buildReportEvent('ride-1', 'reassign', assigned, { ...assigned, assigned_to: 'rider-2' });
   assert.equal(change.value.before.assigned_to, 'rider-1');

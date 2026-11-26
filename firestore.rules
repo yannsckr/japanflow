@@ -1021,6 +1021,9 @@ service cloud.firestore {
         && getAfter(taskPath).data.delivery_address == r.location;
     }
 
+    match /motoboy_admin_audit/{auditId} {
+      allow read, write: if false;
+    }
     // Monthly operational history: only the backend writes; dispatch managers read.
     match /motoboy_ride_report_events/{eventId} {
       allow get, list: if isActive() && managesMotoboyRides();
@@ -1075,6 +1078,7 @@ service cloud.firestore {
         && collection != 'motoboy_journey_telemetry'
         && collection != 'motoboy_assignments'
         && collection != 'motoboy_ride_report_events'
+        && collection != 'motoboy_admin_audit'
         && collection != 'motoboy_device_tokens'
         && collection != 'motoboy_occurrences'
         && collection != 'motoboy_daily_reports'

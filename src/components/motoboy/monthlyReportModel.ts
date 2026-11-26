@@ -11,6 +11,9 @@ export type RideDetail = {
   assignedAt: string | null;
   completedAt: string | null;
   kind: 'assignment' | 'completion';
+  administrative?: boolean;
+  rideId?: string;
+  canEstimate?: boolean;
   status: string;
 };
 export type DayReport = {
@@ -23,6 +26,11 @@ export type DayReport = {
   assigned: number;
   completed: number;
   journeyRecorded: boolean;
+  startPhotoPath?: string;
+  endPhotoPath?: string;
+  expectedMeters?: number;
+  expectedMissing?: number;
+  administrative?: boolean;
   details: RideDetail[];
 };
 export type MonthlySection = {
@@ -97,6 +105,10 @@ const statusLabel = (status: string) =>
 
 type Segment = {
   rideId: string;
+  expectedMeters?: number | null;
+  routeId?: string;
+  canEstimate?: boolean;
+  administrative?: boolean;
   userId: string;
   assignedAt: string | null;
   referenceDay: string;
@@ -117,7 +129,7 @@ function assignmentSegments(rideId: string, events: Event[], live: Raw | null) {
     else active.status = reason;
     active = null;
   };
-  const observe = (state: Raw | null, at: string | null, observed: boolean) => {
+  const observe = (state: Raw | null, at: string | null, observed: boolean, isLive = false) => {
     const userId = text(state?.assigned_to);
     if (
       !state ||
@@ -146,15 +158,36 @@ function assignmentSegments(rideId: string, events: Event[], live: Raw | null) {
         reference: '',
       };
       segments.push(active);
-    } else if (!active.assignedAt && iso(state.assigned_at)) {
+    } else if (iso(state.assigned_at)) {
       active.assignedAt = iso(state.assigned_at);
       active.referenceDay = spDay(active.assignedAt);
     }
+    if (isLive || 'route_id' in state) active.routeId = text(state.route_id);
+    if (
+      isLive ||
+      'expected_return_meters' in state ||
+      'expected_leg_meters' in state ||
+      'expected_distance_meters' in state
+    ) {
+      const outbound = reading(
+        state.route_id ? state.expected_leg_meters : state.expected_distance_meters
+      );
+      const inbound = reading(state.expected_return_meters);
+      active.expectedMeters = outbound !== null && inbound !== null ? outbound + inbound : null;
+    }
+    if ('completion_source' in state || isLive)
+      active.administrative = state.completion_source === 'administrative';
     active.client = text(state.client_name) || text(state.description) || 'Cliente não informado';
     active.address = text(state.location) || 'Sem endereço';
     active.reference = text(state.source_order_task_id) || rideId;
     const previousStatus = active.status;
     active.status = statusLabel(text(state.status));
+    active.canEstimate =
+      isLive &&
+      !active.routeId &&
+      active.expectedMeters == null &&
+      !!text(state.location).trim() &&
+      ['pending', 'accepted', 'completed'].includes(text(state.status));
     if (state.status === 'completed') {
       active.completedAt =
         iso(state.completed_at) ||
@@ -168,7 +201,7 @@ function assignmentSegments(rideId: string, events: Event[], live: Raw | null) {
     observe(event.before, event.at, false);
     observe(event.after, event.at, true);
   }
-  observe(live, null, false);
+  observe(live, null, false, true);
   // One actual completion per ride id. A deleted completed ride still counts;
   // a currently reopened ride does not count until it is completed again.
   const last = segments[segments.length - 1];
@@ -214,6 +247,9 @@ export function buildMonthlyReport(
     const row = getDay(text(journey.user_id), text(journey.day));
     if (!row) continue;
     row.journeyRecorded = true;
+    row.administrative = journey.admin_corrected === true;
+    row.startPhotoPath = text(journey.start_photo_path);
+    row.endPhotoPath = text(journey.end_photo_path);
     row.startedAt = iso(journey.started_at);
     row.endedAt = iso(journey.ended_at);
     row.startKm = reading(journey.start_odometer);
@@ -253,6 +289,9 @@ export function buildMonthlyReport(
         address: segment.address,
         reference: segment.reference,
         assignedAt: segment.assignedAt,
+        administrative: segment.administrative,
+        rideId,
+        canEstimate: segment.canEstimate,
         completedAt: segment.completedAt,
         kind: 'assignment',
         status: segment.status,
@@ -260,6 +299,13 @@ export function buildMonthlyReport(
       const row = getDay(segment.userId, segment.referenceDay);
       if (row) {
         row.assigned++;
+        const superseded = ['Redesignada', 'Desatribuída', 'Cancelada', 'Excluída'].includes(
+          segment.status
+        );
+        if (!superseded && segment.expectedMeters != null)
+          row.expectedMeters = (row.expectedMeters ?? 0) + segment.expectedMeters;
+        else if (!superseded || segment.routeId)
+          row.expectedMissing = (row.expectedMissing ?? 0) + 1;
         row.details.push(detail);
       }
       if (completion === segment) {
@@ -286,7 +332,7 @@ export function buildMonthlyReport(
       totalKm: Math.round(days.reduce((sum, day) => sum + (day.km ?? 0), 0) * 10) / 10,
       totalCompleted: days.reduce((sum, day) => sum + day.completed, 0),
       totalAssigned: days.reduce((sum, day) => sum + day.assigned, 0),
-      journeyDays: days.filter((day) => day.journeyRecorded).length,
+      journeyDays: days.filter((day) => day.startedAt !== null).length,
       incompleteKmDays: days.filter((day) => day.km === null).length,
     };
   }).sort((a, b) => a.person.name.localeCompare(b.person.name, 'pt-BR'));

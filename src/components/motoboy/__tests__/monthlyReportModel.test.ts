@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildMonthlyReport, spDay, type Raw } from '../monthlyReportModel';
-import { buildMonthlyPdf, reportSheets } from '../monthlyReportExport';
+import { buildMonthlyPdf, reportSheets, journeyStatus } from '../monthlyReportExport';
 const people = [
   { id: 'luciano', name: 'Luciano' },
   { id: 'other', name: 'Outro' },
@@ -100,6 +100,67 @@ describe('monthly motoboy telemetry', () => {
     );
     expect(section.totalAssigned).toBe(1);
     expect(section.totalCompleted).toBe(1);
+  });
+  it('sums actual road legs including the return only once and flags missing estimates', () => {
+    const rides = [
+      {
+        id: 'individual',
+        data: { ...assigned, expected_distance_meters: 5000, expected_return_meters: 6000 },
+      },
+      {
+        id: 'route-a',
+        data: {
+          ...assigned,
+          route_id: 'route',
+          expected_leg_meters: 4000,
+          expected_return_meters: 0,
+        },
+      },
+      {
+        id: 'route-b',
+        data: {
+          ...assigned,
+          route_id: 'route',
+          expected_leg_meters: 3000,
+          expected_return_meters: 7000,
+        },
+      },
+      { id: 'unknown', data: { ...assigned, expected_distance_meters: 2000 } },
+    ];
+    const section = rider(buildMonthlyReport('2026-11', people, [journey], rides, []));
+    expect(section.days[0].expectedMeters).toBe(25000);
+    expect(section.days[0].expectedMissing).toBe(1);
+    const sheet = reportSheets([section])[1];
+    expect(sheet.rows[0][7]).toBe(25);
+    expect(sheet.rows[0][10]).toContain('parcial');
+  });
+  it('recognizes incomplete odometer only when the journey is open', () => {
+    const open = rider(report(null, [], [{ ...journey, ended_at: null, end_odometer: null }]))
+      .days[0];
+    expect(journeyStatus(open)).toBe('Odômetro incompleto');
+    const closed = rider(report(null, [], [{ ...journey, end_odometer: null }])).days[0];
+    expect(journeyStatus(closed)).toBe('Encerrada');
+    expect(journeyStatus(rider(report(assigned, [], [])).days[0])).toBe('Sem jornada');
+  });
+  it('uses the corrected designation time and keeps original photo paths', () => {
+    const corrected = { ...assigned, assigned_at: '2026-11-26T12:30:00Z' };
+    const section = rider(
+      report(
+        corrected,
+        [event('1', '2026-11-26T13:00:00Z', assigned, corrected)],
+        [
+          {
+            ...journey,
+            start_photo_path: 'odometer-proof/luciano/opening-proof.jpg',
+            admin_corrected: true,
+          },
+        ]
+      )
+    );
+    expect(section.totalAssigned).toBe(1);
+    expect(section.days[0].details[0].assignedAt).toBe('2026-11-26T12:30:00.000Z');
+    expect(section.days[0].startPhotoPath).toBe('odometer-proof/luciano/opening-proof.jpg');
+    expect(section.days[0].administrative).toBe(true);
   });
   it('shares numeric monthly totals across screen and both exports', () => {
     const sections = report(complete);
