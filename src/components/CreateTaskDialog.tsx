@@ -3,6 +3,7 @@ import { useApp } from '@/contexts/AppContext';
 import { useTaskPermissions } from '@/hooks/useTaskPermissions';
 import { canCreateTasksForAll } from '@/lib/taskCreateAccess';
 import { isCarolRecipient } from '@/lib/taskRecipientAccess';
+import { planOrderFinance } from '@/lib/orderFinancePlan';
 import { Priority, Sector, SECTOR_LABELS } from '@/types';
 import {
   Dialog,
@@ -39,10 +40,8 @@ import { Switch } from '@/components/ui/switch';
 import app, { db } from '@/lib/firebase';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import {
-  addDoc,
   collection,
   doc,
-  setDoc,
   onSnapshot,
   orderBy,
   query,
@@ -65,8 +64,7 @@ interface CreateTaskDialogProps {
 }
 
 const CreateTaskDialog = ({ preselectedAssignee, mode = 'task' }: CreateTaskDialogProps) => {
-  const { currentUser, users, sectorAssignEnabled, nfToCarolEnabled, nfBoletoToCarolEnabled } =
-    useApp();
+  const { currentUser, users, sectorAssignEnabled } = useApp();
   const { permissions, loading: permissionsLoading } = useTaskPermissions();
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState('');
@@ -81,7 +79,7 @@ const CreateTaskDialog = ({ preselectedAssignee, mode = 'task' }: CreateTaskDial
   const [clientQuery, setClientQuery] = useState('');
   const [clients, setClients] = useState<DepartmentalClient[]>([]);
   const [clientReadError, setClientReadError] = useState(false);
-  const titleForTask = mode === 'order' ? `Separação de Pedido - ${clientName.trim()}` : title;
+  const titleForTask = mode === 'order' ? `Separação de pedido - ${clientName.trim()}` : title;
 
   const [description, setDescription] = useState('');
   const [priority, setPriority] = useState<Priority>('medium');
@@ -95,6 +93,7 @@ const CreateTaskDialog = ({ preselectedAssignee, mode = 'task' }: CreateTaskDial
   const [imageFiles, setImageFiles] = useState<File[]>([]);
   const [imagePreviews, setImagePreviews] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
+  const submitting = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [paymentProofFiles, setPaymentProofFiles] = useState<File[]>([]);
   const [paymentProofPreviews, setPaymentProofPreviews] = useState<string[]>([]);
@@ -516,6 +515,7 @@ const CreateTaskDialog = ({ preselectedAssignee, mode = 'task' }: CreateTaskDial
   };
 
   const handleSubmit = async () => {
+    if (submitting.current) return;
     if (isOrderDialog && !clientName.trim()) {
       toast.error('Informe o nome do cliente.');
       return;
@@ -547,57 +547,81 @@ const CreateTaskDialog = ({ preselectedAssignee, mode = 'task' }: CreateTaskDial
       return;
     }
 
-    setUploading(true);
-    const uploadedUrls = await uploadImages();
-    const proofUrls = await uploadPaymentProofs();
-    const allImageUrls = [...uploadedUrls, ...proofUrls];
-    const firstImageUrl = allImageUrls.length > 0 ? allImageUrls[0] : undefined;
-
-    const fullDeadline = deadline && taskTime ? `${deadline} ${taskTime}` : deadline || '';
-    let finalDescription = buildSeparacaoDescription();
-    if (proofUrls.length > 0) {
-      finalDescription += `\n\n💳 Comprovante(s) de Pagamento:\n${proofUrls.map((u) => `• ${u}`).join('\n')}`;
+    // Resolve all mandatory finance recipients before uploading or creating any task.
+    const finance = planOrderFinance(users, {
+      separation: isSeparacao,
+      paid: pagamento === 'pago',
+      nf: emissaoNF === 'sim',
+      boleto: boleto === 'com',
+      troca: isTroca === 'sim',
+      client: isOrderDialog ? clientName.trim() : titleForTask,
+    });
+    if (finance.ok === false) {
+      toast.error(finance.error);
+      return;
     }
-
-    // Cria a tarefa principal no Firestore.
-    const now = new Date().toISOString();
-    const statusHistory = [{ status: 'todo', enteredAt: now }];
-
-    // Pedido e corrida Motoboy devem nascer juntos: falha de permissao nao gera pedido orfao.
-    const taskRef = doc(collection(db, 'tasks'));
-    const createdTaskId = taskRef.id;
-    const taskData = {
-      board_visible: true,
-      title: titleForTask,
-      description: finalDescription,
-      ...(isOrderDialog
-        ? {
-            client_id: clientId,
-            client_name: clientName.trim(),
-            client_address: clientAddress.trim(),
-            delivery_address: effectiveDeliveryAddress,
-            delivery_place_id: enderecoDiferente ? deliveryAddressPlaceId : clientAddressPlaceId,
-            delivery_method: formaEntrega || null,
-          }
-        : {}),
-      priority,
-      assignee_id: isOrderDialog ? '' : effectiveAssignMode === 'employee' ? assigneeId : '',
-      deadline: fullDeadline,
-      status: 'todo',
-      created_by: currentUser.id,
-      sector: isOrderDialog
-        ? ('expedicao' as Sector)
-        : effectiveAssignMode === 'sector'
-          ? (sector as Sector)
-          : null,
-      image_url: firstImageUrl || null,
-      image_urls: allImageUrls,
-      status_history: statusHistory,
-      created_at: Timestamp.now(),
-      updated_at: Timestamp.now(),
-    };
-    const isMotoboyOrder = isSeparacao && formaEntrega === 'motoboy';
+    submitting.current = true;
+    setUploading(true);
+    const notifications: { userId: string; taskId: string; message: string }[] = [];
+    let savedTaskId = '';
+    let savedMotoboyOrder = false;
     try {
+      const uploadedUrls = await uploadImages();
+      const proofUrls = isSeparacao && pagamento === 'pago' ? await uploadPaymentProofs() : [];
+      if (
+        uploadedUrls.length !== imageFiles.length ||
+        (isSeparacao && pagamento === 'pago' && proofUrls.length !== paymentProofFiles.length)
+      ) {
+        throw new Error('Não foi possível enviar todos os anexos.');
+      }
+      const allImageUrls = [...uploadedUrls, ...proofUrls];
+      const firstImageUrl = allImageUrls.length > 0 ? allImageUrls[0] : undefined;
+      const fullDeadline = deadline && taskTime ? `${deadline} ${taskTime}` : deadline || '';
+      let finalDescription = buildSeparacaoDescription();
+      if (proofUrls.length > 0) {
+        finalDescription += `\n\n💳 Comprovante(s) de Pagamento:\n${proofUrls.map((u) => `• ${u}`).join('\n')}`;
+      }
+
+      // Cria a tarefa principal no Firestore.
+      const now = new Date().toISOString();
+      const statusHistory = [{ status: 'todo', enteredAt: now }];
+
+      // Pedido e corrida Motoboy devem nascer juntos: falha de permissao nao gera pedido orfao.
+      const taskRef = doc(collection(db, 'tasks'));
+      const createdTaskId = taskRef.id;
+      const taskData = {
+        board_visible: true,
+        title: titleForTask,
+        description: finalDescription,
+        ...(isOrderDialog
+          ? {
+              client_id: clientId,
+              client_name: clientName.trim(),
+              client_address: clientAddress.trim(),
+              delivery_address: effectiveDeliveryAddress,
+              delivery_place_id: enderecoDiferente ? deliveryAddressPlaceId : clientAddressPlaceId,
+              delivery_method: formaEntrega || null,
+            }
+          : {}),
+        priority,
+        assignee_id: isOrderDialog ? '' : effectiveAssignMode === 'employee' ? assigneeId : '',
+        deadline: fullDeadline,
+        status: 'todo',
+        created_by: currentUser.id,
+        sector: isOrderDialog
+          ? ('expedicao' as Sector)
+          : effectiveAssignMode === 'sector'
+            ? (sector as Sector)
+            : null,
+        image_url: firstImageUrl || null,
+        image_urls: allImageUrls,
+        status_history: statusHistory,
+        created_at: Timestamp.now(),
+        updated_at: Timestamp.now(),
+      };
+      const isMotoboyOrder = isSeparacao && formaEntrega === 'motoboy';
+      const batch = writeBatch(db);
+      batch.set(taskRef, taskData);
       if (isMotoboyOrder) {
         const separacaoDetails = [
           pagamento === 'pago' ? '💰 Pago' : pagamento === 'nao_pago' ? '💰 Não Pago' : '',
@@ -630,123 +654,18 @@ const CreateTaskDialog = ({ preselectedAssignee, mode = 'task' }: CreateTaskDial
           created_at: Timestamp.now(),
           updated_at: Timestamp.now(),
         };
-        const batch = writeBatch(db);
-        batch.set(taskRef, taskData);
         batch.set(createdRideRef, rideData);
-        await batch.commit();
-      } else {
-        await setDoc(taskRef, taskData);
       }
-    } catch (error) {
-      console.error('[Novo Pedido] Nao foi possivel salvar tarefa e corrida:', error);
-      toast.error(
-        isMotoboyOrder
-          ? 'Nao foi possivel registrar pedido e corrida. Nenhum dos dois foi criado.'
-          : 'Nao foi possivel criar o pedido ou tarefa.'
-      );
-      setUploading(false);
-      return;
-    }
-
-    // Send notification for assigned user
-    if (!isOrderDialog && effectiveAssignMode === 'employee' && assigneeId) {
-      try {
-        await addDoc(collection(db, 'notifications'), {
-          user_id: assigneeId,
-          userId: assigneeId,
-          taskId: createdTaskId,
-          message: `Nova tarefa atribuída: ${titleForTask}`,
-          type: 'task_created',
-          read: false,
-          created_at: Timestamp.now(),
-          createdAt: new Date().toISOString(),
-        });
-      } catch (error) {
-        // A tarefa já foi criada: falha na notificação não pode interromper
-        // outros fluxos (financeiro, expedição) nem induzir um envio duplicado.
-        console.warn('Tarefa criada, mas notificação não enviada:', error);
-        toast.warning('Tarefa criada, mas a notificação não pôde ser enviada.');
-      }
-    }
-
-    // A corrida Motoboy ja foi salva atomicamente com o pedido.
-    if (isMotoboyOrder) {
-      const createdRideRef = doc(db, 'motoboy_assignments', `order_${createdTaskId}`);
-      if (effectiveDeliveryAddress.trim()) {
-        const estimate = httpsCallable<{ action: string; rideId: string }, unknown>(
-          getFunctions(app, 'southamerica-east1'),
-          'googleRoutePlanner'
-        );
-        void estimate({ action: 'estimateRideAndPersist', rideId: createdRideRef.id }).catch(
-          (error) => console.warn('[pedido] km previsto nao calculado', error)
-        );
-      }
-      toast.info('Corrida criada em Pendentes, pronta para designacao.');
-    }
-
-    // If separação with Transportadora, create a personal task for Patricia (emp-1)
-    if (isSeparacao && formaEntrega === 'transportadora' && currentUser) {
-      const transpLabel =
-        transportadora === 'outros'
-          ? transportadoraOutros?.trim() || 'Outros'
-          : transportadora || 'Outros';
-      const patriciaTaskDesc = [
-        enderecoDiferente ? ENDERECO_BANNER : '',
-        `Transportadora: ${transpLabel}`,
-        `Pedido: ${titleForTask}`,
-        pagamento === 'pago' ? '💰 Pago' : pagamento === 'nao_pago' ? '💰 Não Pago' : '',
-        boleto === 'com' ? '📄 COM Boleto' : boleto === 'sem' ? '📄 SEM Boleto' : '',
-        emissaoNF === 'sim' ? '🧾 COM NF' : emissaoNF === 'nao' ? '🧾 SEM NF' : '',
-        maquininha === 'sim'
-          ? '💳 Levar Maquininha'
-          : maquininha === 'nao'
-            ? '💳 Sem Maquininha'
-            : '',
-        description ? `Obs: ${description}` : '',
-        enderecoDiferente ? '[INFO:ENDERECO_DIFERENTE]' : '',
-      ]
-        .filter(Boolean)
-        .join('\n');
-      const deadlinePatricia = new Date();
-      deadlinePatricia.setHours(23, 59, 59, 999);
-      const patStatusHistory = [{ status: 'todo', enteredAt: new Date().toISOString() }];
-      await addDoc(collection(db, 'tasks'), {
-        board_visible: true,
-        title: `${enderecoDiferente ? '🚨 ENDEREÇO DIFERENTE - ' : ''}🚛 Transportadora ${transpLabel}: ${titleForTask}`,
-        description: patriciaTaskDesc,
-        status: 'todo',
-        priority: 'medium',
-        assignee_id: 'emp-1',
-        created_by: currentUser.id,
-        deadline: deadlinePatricia.toISOString().split('T')[0],
-        sector: null,
-        status_history: patStatusHistory,
-        image_url: firstImageUrl || null,
-        image_urls: uploadedUrls,
-        created_at: Timestamp.now(),
-        updated_at: Timestamp.now(),
-      });
-      await addDoc(collection(db, 'notifications'), {
-        user_id: 'emp-1',
-        message: `Transportadora ${transpLabel}: ${titleForTask}`,
-        type: 'task_created',
-        read: false,
-        created_at: Timestamp.now(),
-      });
-      toast.info(`Tarefa de transportadora ${transpLabel} criada para Patrícia`);
-    }
-
-    // If separação with Balcão OR Transportadora "PH Transportes", create a pickup entry
-    if (isSeparacao && currentUser) {
-      const isBalcao = formaEntrega === 'balcao';
-      const transpLabelPickup =
-        transportadora === 'outros' ? transportadoraOutros?.trim() || '' : transportadora || '';
-      const isPH =
-        formaEntrega === 'transportadora' &&
-        transpLabelPickup.toLowerCase().includes('ph transportes');
-      if (isBalcao || isPH) {
-        const pickupDetails = [
+      // If separação with Transportadora, create a personal task for Patricia (emp-1)
+      if (isSeparacao && formaEntrega === 'transportadora' && currentUser) {
+        const transpLabel =
+          transportadora === 'outros'
+            ? transportadoraOutros?.trim() || 'Outros'
+            : transportadora || 'Outros';
+        const patriciaTaskDesc = [
           enderecoDiferente ? ENDERECO_BANNER : '',
+          `Transportadora: ${transpLabel}`,
+          `Pedido: ${titleForTask}`,
           pagamento === 'pago' ? '💰 Pago' : pagamento === 'nao_pago' ? '💰 Não Pago' : '',
           boleto === 'com' ? '📄 COM Boleto' : boleto === 'sem' ? '📄 SEM Boleto' : '',
           emissaoNF === 'sim' ? '🧾 COM NF' : emissaoNF === 'nao' ? '🧾 SEM NF' : '',
@@ -760,236 +679,247 @@ const CreateTaskDialog = ({ preselectedAssignee, mode = 'task' }: CreateTaskDial
         ]
           .filter(Boolean)
           .join('\n');
-        await addDoc(collection(db, 'pickups'), {
-          order_title: titleForTask,
-          delivery_type: isBalcao ? 'balcao' : 'transportadora',
-          carrier_name: isBalcao ? null : transpLabelPickup,
-          details: pickupDetails || null,
-          task_id: null, // somente criar task do motoboy ao designar; nao vincular a tarefa de separacao
+        const deadlinePatricia = new Date();
+        deadlinePatricia.setHours(23, 59, 59, 999);
+        const patStatusHistory = [{ status: 'todo', enteredAt: new Date().toISOString() }];
+        const transportTaskRef = doc(collection(db, 'tasks'));
+        batch.set(transportTaskRef, {
+          board_visible: true,
+          title: `${enderecoDiferente ? '🚨 ENDEREÇO DIFERENTE - ' : ''}🚛 Transportadora ${transpLabel}: ${titleForTask}`,
+          description: patriciaTaskDesc,
+          status: 'todo',
+          priority: 'medium',
+          assignee_id: 'emp-1',
           created_by: currentUser.id,
-          status: 'pending',
+          deadline: deadlinePatricia.toISOString().split('T')[0],
+          sector: null,
+          status_history: patStatusHistory,
+          image_url: firstImageUrl || null,
+          image_urls: uploadedUrls,
           created_at: Timestamp.now(),
           updated_at: Timestamp.now(),
         });
-        toast.info(
-          isBalcao ? 'Retirada de Balcão registrada' : 'Retirada PH Transportes registrada'
-        );
-      }
-    }
-
-    // If separação with Correios delivery, create a task for William to generate shipping label
-    if (isSeparacao && formaEntrega === 'correios' && modalidadeCorreios && currentUser) {
-      const modalLabel = modalidadeCorreios === 'sedex' ? 'SEDEX' : 'PAC';
-      const williamTaskDesc = [
-        enderecoDiferente ? ENDERECO_BANNER : '',
-        `Gerar etiqueta de envio via ${modalLabel}`,
-        `Pedido: ${titleForTask}`,
-        ...(isOrderDialog
-          ? [
-              `Cliente: ${clientName.trim()}`,
-              `Endereço de entrega: ${effectiveDeliveryAddress}`,
-              `Endereço cadastrado: ${clientAddress.trim()}`,
-            ]
-          : []),
-        pagamento === 'pago' ? '💰 Pago' : pagamento === 'nao_pago' ? '💰 Não Pago' : '',
-        emissaoNF === 'sim'
-          ? '🧾 COM Emissão de NF'
-          : emissaoNF === 'nao'
-            ? '🧾 SEM Emissão de NF'
-            : '',
-        boleto === 'com' ? '📄 COM Boleto' : boleto === 'sem' ? '📄 SEM Boleto' : '',
-        description ? `Obs: ${description}` : '',
-        `[INFO:${[
-          enderecoDiferente ? 'ENDERECO_DIFERENTE' : '',
-          pagamento === 'pago' ? 'PAGO' : pagamento === 'nao_pago' ? 'NAO_PAGO' : '',
-          emissaoNF === 'sim' ? 'NF' : emissaoNF === 'nao' ? 'SEM_NF' : '',
-          boleto === 'com' ? 'BOLETO' : boleto === 'sem' ? 'SEM_BOLETO' : '',
-        ]
-          .filter(Boolean)
-          .join(',')}]`,
-      ]
-        .filter(Boolean)
-        .join('\n');
-      const deadlineForWilliam = new Date();
-      deadlineForWilliam.setHours(23, 59, 59, 999);
-      const statusHistory = [{ status: 'todo', enteredAt: new Date().toISOString() }];
-      await addDoc(collection(db, 'tasks'), {
-        board_visible: true,
-        title: `${enderecoDiferente ? '🚨 ENDEREÇO DIFERENTE - ' : ''}📮 Etiqueta ${modalLabel}: ${titleForTask}`,
-        description: williamTaskDesc,
-        status: 'todo',
-        priority: 'high',
-        assignee_id: 'emp-12',
-        created_by: currentUser.id,
-        deadline: deadlineForWilliam.toISOString().split('T')[0],
-        sector: 'expedicao',
-        status_history: statusHistory,
-        image_url: firstImageUrl || null,
-        image_urls: uploadedUrls,
-        created_at: Timestamp.now(),
-        updated_at: Timestamp.now(),
-      });
-      toast.info(`Tarefa de etiqueta ${modalLabel} criada para William`);
-    }
-
-    // If separação with NF, COM Boleto, or TROCA, create task for financial sector
-    if (
-      isSeparacao &&
-      (emissaoNF === 'sim' || boleto === 'com' || isTroca === 'sim') &&
-      currentUser
-    ) {
-      const financialParts: string[] = [];
-      if (emissaoNF === 'sim') financialParts.push('🧾 Emissão de NF');
-      if (boleto === 'com') financialParts.push('📄 Gerar Boleto');
-      const trocaBanner =
-        isTroca === 'sim'
-          ? '🔄🔄🔄 TROCA 🔄🔄🔄\n=========================\n⚠️ ATENÇÃO: ESTE PEDIDO É UMA TROCA ⚠️\n=========================\n'
-          : '';
-      const financialTaskDesc = [
-        enderecoDiferente ? ENDERECO_BANNER : '',
-        trocaBanner,
-        financialParts.join(' + '),
-        `Pedido: ${titleForTask}`,
-        pagamento === 'pago' ? '💰 Pago' : pagamento === 'nao_pago' ? '💰 Não Pago' : '',
-        description ? `Obs: ${description}` : '',
-        enderecoDiferente ? '[INFO:ENDERECO_DIFERENTE]' : '',
-      ]
-        .filter(Boolean)
-        .join('\n');
-      const deadlineFinanceiro = new Date();
-      deadlineFinanceiro.setHours(23, 59, 59, 999);
-      const finStatusHistory = [{ status: 'todo', enteredAt: new Date().toISOString() }];
-
-      const trocaPrefix = isTroca === 'sim' ? '🔄 TROCA - ' : '';
-      const hasNF = emissaoNF === 'sim';
-      const hasBoleto = boleto === 'com';
-      const nfWithBoleto = hasNF && hasBoleto;
-      const nfOnly = hasNF && !hasBoleto;
-      const boletoOnly = hasBoleto && !hasNF;
-      const trocaOnly = !hasNF && !hasBoleto && isTroca === 'sim';
-
-      // One shared task for Patricia and Carol; statuses stay synchronized in one document.
-      const financialOwners = users.filter(
-        (user) =>
-          user.active !== false &&
-          ['patricia', 'carol'].includes(user.username.trim().toLowerCase().replace(/_+$/, ''))
-      );
-      const financialOwnerIds = ['patricia', 'carol'].map(
-        (username) =>
-          financialOwners.find(
-            (user) => user.username.trim().toLowerCase().replace(/_+$/, '') === username
-          )?.id
-      );
-      const sharedFinancialTask = hasNF || hasBoleto;
-      if (sharedFinancialTask && financialOwnerIds.some((id) => !id)) {
-        toast.error(
-          'Não foi possível localizar Patrícia e Carol ativas. Nenhuma tarefa financeira foi criada.'
-        );
-        setUploading(false);
-        return;
-      }
-      const targetAssignees = sharedFinancialTask ? (financialOwnerIds as string[]) : [];
-      const targetAssignee = targetAssignees[0] || '';
-      const targetSector: string | null = sharedFinancialTask ? null : 'financeiro';
-      const targetName = sharedFinancialTask ? 'Patrícia e Carol' : 'Financeiro';
-
-      const enderecoPrefix = enderecoDiferente ? '🚨 ENDEREÇO DIFERENTE - ' : '';
-      const finTitle = nfWithBoleto
-        ? `${enderecoPrefix}${trocaPrefix}🧾 NF + Boleto: ${titleForTask}`
-        : nfOnly
-          ? `${enderecoPrefix}${trocaPrefix}🧾 Emissão NF: ${titleForTask}`
-          : boletoOnly
-            ? `${enderecoPrefix}${trocaPrefix}📄 Boleto: ${titleForTask}`
-            : `${enderecoPrefix}🔄 TROCA: ${titleForTask}`;
-      await addDoc(collection(db, 'tasks'), {
-        board_visible: true,
-        title: finTitle,
-        description: financialTaskDesc,
-        status: 'todo',
-        priority: 'high',
-        assignee_id: targetAssignee,
-        ...(sharedFinancialTask ? { assignee_ids: targetAssignees } : {}),
-        created_by: currentUser.id,
-        deadline: deadlineFinanceiro.toISOString().split('T')[0],
-        sector: targetSector,
-        status_history: finStatusHistory,
-        image_url: firstImageUrl || null,
-        image_urls: uploadedUrls,
-        created_at: Timestamp.now(),
-        updated_at: Timestamp.now(),
-      });
-      for (const assignee of targetAssignees) {
-        await addDoc(collection(db, 'notifications'), {
-          user_id: assignee,
-          message: `${finTitle}`,
-          type: 'task_created',
-          read: false,
-          created_at: Timestamp.now(),
+        notifications.push({
+          userId: 'emp-1',
+          taskId: transportTaskRef.id,
+          message: `Transportadora ${transpLabel}: ${titleForTask}`,
         });
       }
-      const labelParts = financialParts.length > 0 ? financialParts.join(' e ') : 'TROCA';
-      toast.info(
-        `Tarefa de ${labelParts} criada para ${targetName}${isTroca === 'sim' && !trocaOnly ? ' (TROCA)' : ''}`
+
+      // If separação with Balcão OR Transportadora "PH Transportes", create a pickup entry
+      if (isSeparacao && currentUser) {
+        const isBalcao = formaEntrega === 'balcao';
+        const transpLabelPickup =
+          transportadora === 'outros' ? transportadoraOutros?.trim() || '' : transportadora || '';
+        const isPH =
+          formaEntrega === 'transportadora' &&
+          transpLabelPickup.toLowerCase().includes('ph transportes');
+        if (isBalcao || isPH) {
+          const pickupDetails = [
+            enderecoDiferente ? ENDERECO_BANNER : '',
+            pagamento === 'pago' ? '💰 Pago' : pagamento === 'nao_pago' ? '💰 Não Pago' : '',
+            boleto === 'com' ? '📄 COM Boleto' : boleto === 'sem' ? '📄 SEM Boleto' : '',
+            emissaoNF === 'sim' ? '🧾 COM NF' : emissaoNF === 'nao' ? '🧾 SEM NF' : '',
+            maquininha === 'sim'
+              ? '💳 Levar Maquininha'
+              : maquininha === 'nao'
+                ? '💳 Sem Maquininha'
+                : '',
+            description ? `Obs: ${description}` : '',
+            enderecoDiferente ? '[INFO:ENDERECO_DIFERENTE]' : '',
+          ]
+            .filter(Boolean)
+            .join('\n');
+          batch.set(doc(collection(db, 'pickups')), {
+            order_title: titleForTask,
+            delivery_type: isBalcao ? 'balcao' : 'transportadora',
+            carrier_name: isBalcao ? null : transpLabelPickup,
+            details: pickupDetails || null,
+            task_id: null, // somente criar task do motoboy ao designar; nao vincular a tarefa de separacao
+            created_by: currentUser.id,
+            status: 'pending',
+            created_at: Timestamp.now(),
+            updated_at: Timestamp.now(),
+          });
+        }
+      }
+
+      // If separação with Correios delivery, create a task for William to generate shipping label
+      if (isSeparacao && formaEntrega === 'correios' && modalidadeCorreios && currentUser) {
+        const modalLabel = modalidadeCorreios === 'sedex' ? 'SEDEX' : 'PAC';
+        const williamTaskDesc = [
+          enderecoDiferente ? ENDERECO_BANNER : '',
+          `Gerar etiqueta de envio via ${modalLabel}`,
+          `Pedido: ${titleForTask}`,
+          ...(isOrderDialog
+            ? [
+                `Cliente: ${clientName.trim()}`,
+                `Endereço de entrega: ${effectiveDeliveryAddress}`,
+                `Endereço cadastrado: ${clientAddress.trim()}`,
+              ]
+            : []),
+          pagamento === 'pago' ? '💰 Pago' : pagamento === 'nao_pago' ? '💰 Não Pago' : '',
+          emissaoNF === 'sim'
+            ? '🧾 COM Emissão de NF'
+            : emissaoNF === 'nao'
+              ? '🧾 SEM Emissão de NF'
+              : '',
+          boleto === 'com' ? '📄 COM Boleto' : boleto === 'sem' ? '📄 SEM Boleto' : '',
+          description ? `Obs: ${description}` : '',
+          `[INFO:${[
+            enderecoDiferente ? 'ENDERECO_DIFERENTE' : '',
+            pagamento === 'pago' ? 'PAGO' : pagamento === 'nao_pago' ? 'NAO_PAGO' : '',
+            emissaoNF === 'sim' ? 'NF' : emissaoNF === 'nao' ? 'SEM_NF' : '',
+            boleto === 'com' ? 'BOLETO' : boleto === 'sem' ? 'SEM_BOLETO' : '',
+          ]
+            .filter(Boolean)
+            .join(',')}]`,
+        ]
+          .filter(Boolean)
+          .join('\n');
+        const deadlineForWilliam = new Date();
+        deadlineForWilliam.setHours(23, 59, 59, 999);
+        const statusHistory = [{ status: 'todo', enteredAt: new Date().toISOString() }];
+        const labelTaskRef = doc(collection(db, 'tasks'));
+        batch.set(labelTaskRef, {
+          board_visible: true,
+          title: `${enderecoDiferente ? '🚨 ENDEREÇO DIFERENTE - ' : ''}📮 Etiqueta ${modalLabel}: ${titleForTask}`,
+          description: williamTaskDesc,
+          status: 'todo',
+          priority: 'high',
+          assignee_id: 'emp-12',
+          created_by: currentUser.id,
+          deadline: deadlineForWilliam.toISOString().split('T')[0],
+          sector: 'expedicao',
+          status_history: statusHistory,
+          image_url: firstImageUrl || null,
+          image_urls: uploadedUrls,
+          created_at: Timestamp.now(),
+          updated_at: Timestamp.now(),
+        });
+        notifications.push({
+          userId: 'emp-12',
+          taskId: labelTaskRef.id,
+          message: `Etiqueta ${modalLabel}: ${titleForTask}`,
+        });
+      }
+
+      // Finance and shipping tasks are committed together with the main order.
+      // A paid order has a separate low-level cash reconciliation task for Carol.
+      const financeDeadline = new Date();
+      financeDeadline.setHours(23, 59, 59, 999);
+      for (const item of finance.tasks) {
+        const financeRef = doc(collection(db, 'tasks'));
+        const financeTitle =
+          item.kind === 'payment'
+            ? item.title
+            : `${enderecoDiferente ? '🚨 ENDEREÇO DIFERENTE - ' : ''}${item.title}`;
+        batch.set(financeRef, {
+          board_visible: true,
+          title: financeTitle,
+          description: [
+            item.instructions,
+            `Pedido: ${titleForTask}`,
+            finalDescription,
+            buildOrderInfoNotes(),
+          ]
+            .filter(Boolean)
+            .join('\n\n'),
+          ...(isOrderDialog
+            ? {
+                client_id: clientId,
+                client_name: clientName.trim(),
+                client_address: clientAddress.trim(),
+                delivery_address: effectiveDeliveryAddress,
+                delivery_place_id: enderecoDiferente
+                  ? deliveryAddressPlaceId
+                  : clientAddressPlaceId,
+              }
+            : {}),
+          source_order_task_id: taskRef.id,
+          status: 'todo',
+          priority: 'high',
+          assignee_id: item.assigneeId,
+          ...(item.assigneeIds.length ? { assignee_ids: item.assigneeIds } : {}),
+          created_by: currentUser.id,
+          deadline: financeDeadline.toISOString().split('T')[0],
+          sector: item.sector,
+          status_history: statusHistory,
+          image_url: proofUrls[0] || firstImageUrl || null,
+          image_urls: [...proofUrls, ...uploadedUrls],
+          created_at: Timestamp.now(),
+          updated_at: Timestamp.now(),
+        });
+        for (const userId of new Set([item.assigneeId, ...item.assigneeIds].filter(Boolean))) {
+          notifications.push({
+            userId,
+            taskId: financeRef.id,
+            message: `Nova tarefa atribuída: ${financeTitle}`,
+          });
+        }
+      }
+      if (!isOrderDialog && effectiveAssignMode === 'employee' && assigneeId) {
+        notifications.push({
+          userId: assigneeId,
+          taskId: createdTaskId,
+          message: `Nova tarefa atribuída: ${titleForTask}`,
+        });
+      }
+      await batch.commit();
+      savedTaskId = createdTaskId;
+      savedMotoboyOrder = isMotoboyOrder;
+    } catch (error) {
+      console.error('[Novo Pedido] Falha ao enviar pedido:', error);
+      toast.error(
+        'Não foi possível confirmar o envio. Confira a conexão e os anexos antes de tentar novamente.'
       );
+      return;
+    } finally {
+      // Keep submission locked until post-commit state is reset below; unlock on failure.
+      if (!savedTaskId) {
+        submitting.current = false;
+        setUploading(false);
+      }
     }
 
-    // If separação marked as PAGO (com comprovante OU usando créditos), create "Dar Baixa no Caixa" task for Financeiro
-    if (
-      isSeparacao &&
-      pagamento === 'pago' &&
-      (proofUrls.length > 0 || usarCreditos) &&
-      currentUser
-    ) {
-      const combinedImageUrls = [...proofUrls, ...uploadedUrls];
-      const baixaTitlePrefix = usarCreditos
-        ? '💰🪙 Dar Baixa no Caixa (USAR CRÉDITOS)'
-        : '💰 Dar Baixa no Caixa';
-      const baixaDesc = [
-        enderecoDiferente ? ENDERECO_BANNER : '',
-        usarCreditos ? '🪙 USAR CRÉDITOS DO CLIENTE' : '💰 DAR BAIXA NO CAIXA',
-        `Pedido: ${titleForTask}`,
-        usarCreditos
-          ? proofUrls.length > 0
-            ? 'Cliente irá utilizar créditos. Comprovante anexado (opcional).'
-            : 'Cliente irá utilizar créditos — comprovante NÃO foi anexado (opcional neste caso).'
-          : 'Pagamento confirmado — comprovante anexo.',
-        proofUrls.length > 0
-          ? `\n💳 Comprovante(s):\n${proofUrls.map((u) => `• ${u}`).join('\n')}`
-          : '',
-        uploadedUrls.length > 0
-          ? `\n📋 Pedido de Separação (imagem):\n${uploadedUrls.map((u) => `• ${u}`).join('\n')}`
-          : '',
-        description ? `\nObs: ${description}` : '',
-        enderecoDiferente ? '[INFO:ENDERECO_DIFERENTE]' : '',
-      ]
-        .filter(Boolean)
-        .join('\n');
-      const deadlineBaixa = new Date();
-      deadlineBaixa.setHours(23, 59, 59, 999);
-      const baixaHistory = [{ status: 'todo', enteredAt: new Date().toISOString() }];
-      await addDoc(collection(db, 'tasks'), {
-        board_visible: true,
-        title: `${enderecoDiferente ? '🚨 ENDEREÇO DIFERENTE - ' : ''}${baixaTitlePrefix}: ${titleForTask}`,
-        description: baixaDesc,
-        status: 'todo',
-        priority: 'high',
-        assignee_id: '',
-        created_by: currentUser.id,
-        deadline: deadlineBaixa.toISOString().split('T')[0],
-        sector: 'financeiro',
-        status_history: baixaHistory,
-        image_url: proofUrls[0] || firstImageUrl || null,
-        image_urls: combinedImageUrls,
-        created_at: Timestamp.now(),
-        updated_at: Timestamp.now(),
-      });
-      toast.info(
-        usarCreditos
-          ? 'Tarefa de Baixa no Caixa (USAR CRÉDITOS) criada para o Financeiro'
-          : 'Tarefa de Baixa no Caixa criada para o Financeiro'
-      );
+    // Commit succeeded. Notification or distance failures must never retry the order.
+    const createdTaskId = savedTaskId;
+    const isMotoboyOrder = savedMotoboyOrder;
+    void Promise.allSettled(
+      notifications.map(async (notification) =>
+        writeBatch(db)
+          .set(doc(collection(db, 'notifications')), {
+            user_id: notification.userId,
+            userId: notification.userId,
+            taskId: notification.taskId,
+            message: notification.message,
+            type: 'task_created',
+            read: false,
+            created_at: Timestamp.now(),
+            createdAt: new Date().toISOString(),
+          })
+          .commit()
+      )
+    ).then((results) => {
+      if (results.some((result) => result.status === 'rejected')) {
+        toast.warning('Pedido salvo, mas uma ou mais notificações não foram enviadas.');
+      }
+    });
+    // A corrida Motoboy ja foi salva atomicamente com o pedido.
+    if (isMotoboyOrder) {
+      const createdRideRef = doc(db, 'motoboy_assignments', `order_${createdTaskId}`);
+      if (effectiveDeliveryAddress.trim()) {
+        const estimate = httpsCallable<{ action: string; rideId: string }, unknown>(
+          getFunctions(app, 'southamerica-east1'),
+          'googleRoutePlanner'
+        );
+        void estimate({ action: 'estimateRideAndPersist', rideId: createdRideRef.id }).catch(
+          (error) => console.warn('[pedido] km previsto nao calculado', error)
+        );
+      }
     }
 
+    toast.success(isSeparacao ? 'Pedido e tarefas vinculadas salvos.' : 'Tarefa criada.');
     // Reset all fields
     setTitle('');
     setClientName('');
@@ -1010,6 +940,7 @@ const CreateTaskDialog = ({ preselectedAssignee, mode = 'task' }: CreateTaskDial
     setImageFiles([]);
     setImagePreviews([]);
     resetSeparacaoFields();
+    submitting.current = false;
     setUploading(false);
     setOpen(false);
   };
@@ -1044,6 +975,7 @@ const CreateTaskDialog = ({ preselectedAssignee, mode = 'task' }: CreateTaskDial
     <Dialog
       open={open}
       onOpenChange={(v) => {
+        if (!v && submitting.current) return;
         setOpen(v);
         if (!v) {
           resetSeparacaoFields();
@@ -1080,7 +1012,7 @@ const CreateTaskDialog = ({ preselectedAssignee, mode = 'task' }: CreateTaskDial
           <div
             className={
               isOrderDialog
-                ? 'grid min-w-0 gap-5 lg:grid-cols-[minmax(0,1.08fr)_minmax(0,0.92fr)] lg:items-start'
+                ? 'grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1.04fr)_minmax(0,0.96fr)] xl:items-start'
                 : 'grid gap-6 lg:grid-cols-[minmax(0,1.18fr)_minmax(0,0.82fr)]'
             }
           >
@@ -1411,7 +1343,7 @@ const CreateTaskDialog = ({ preselectedAssignee, mode = 'task' }: CreateTaskDial
                   </div>
 
                   {isSeparacao && (
-                    <div className="space-y-4 pt-1">
+                    <div className="min-w-0 space-y-4 pt-1">
                       {/* Endereço diferente do cadastro - no Pedido fica no bloco de cliente */}
                       {!isOrderDialog && (
                         <div
@@ -1444,16 +1376,16 @@ const CreateTaskDialog = ({ preselectedAssignee, mode = 'task' }: CreateTaskDial
                         </div>
                       )}
 
-                      <div className="grid gap-2">
+                      <div className="flex min-w-0 flex-col gap-2">
                         {/* Troca */}
-                        <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
+                        <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 rounded-md border border-border px-3 py-2">
                           <span className="text-sm text-foreground">Caso de Troca?</span>
-                          <div className="flex gap-1">
+                          <div className="flex min-w-0 flex-wrap gap-1">
                             <Button
                               type="button"
                               size="sm"
                               variant={isTroca === 'sim' ? 'default' : 'outline'}
-                              className="h-7 text-xs px-3"
+                              className="h-auto min-h-7 whitespace-normal px-2.5 py-1 text-xs"
                               onClick={() => setIsTroca(isTroca === 'sim' ? '' : 'sim')}
                             >
                               Sim
@@ -1462,7 +1394,7 @@ const CreateTaskDialog = ({ preselectedAssignee, mode = 'task' }: CreateTaskDial
                               type="button"
                               size="sm"
                               variant={isTroca === 'nao' ? 'default' : 'outline'}
-                              className="h-7 text-xs px-3"
+                              className="h-auto min-h-7 whitespace-normal px-2.5 py-1 text-xs"
                               onClick={() => setIsTroca(isTroca === 'nao' ? '' : 'nao')}
                             >
                               Não
@@ -1471,14 +1403,14 @@ const CreateTaskDialog = ({ preselectedAssignee, mode = 'task' }: CreateTaskDial
                         </div>
 
                         {/* Pagamento */}
-                        <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
+                        <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 rounded-md border border-border px-3 py-2">
                           <span className="text-sm text-foreground">Pagamento</span>
-                          <div className="flex gap-1">
+                          <div className="flex min-w-0 flex-wrap gap-1">
                             <Button
                               type="button"
                               size="sm"
                               variant={pagamento === 'pago' ? 'default' : 'outline'}
-                              className="h-7 text-xs px-3"
+                              className="h-auto min-h-7 whitespace-normal px-2.5 py-1 text-xs"
                               onClick={() => setPagamento(pagamento === 'pago' ? '' : 'pago')}
                             >
                               Pago
@@ -1487,7 +1419,7 @@ const CreateTaskDialog = ({ preselectedAssignee, mode = 'task' }: CreateTaskDial
                               type="button"
                               size="sm"
                               variant={pagamento === 'nao_pago' ? 'destructive' : 'outline'}
-                              className="h-7 text-xs px-3"
+                              className="h-auto min-h-7 whitespace-normal px-2.5 py-1 text-xs"
                               onClick={() =>
                                 setPagamento(pagamento === 'nao_pago' ? '' : 'nao_pago')
                               }
@@ -1499,8 +1431,8 @@ const CreateTaskDialog = ({ preselectedAssignee, mode = 'task' }: CreateTaskDial
 
                         {/* Usar Créditos - aparece quando PAGO */}
                         {pagamento === 'pago' && (
-                          <div className="rounded-md border border-primary/40 bg-primary/5 px-3 py-2 flex items-center justify-between gap-3">
-                            <div className="flex flex-col">
+                          <div className="flex min-w-0 items-center justify-between gap-3 rounded-md border border-primary/40 bg-primary/5 px-3 py-2">
+                            <div className="flex min-w-0 flex-col break-words">
                               <span className="text-sm font-medium text-foreground">
                                 🪙 Usar Créditos
                               </span>
@@ -1510,6 +1442,7 @@ const CreateTaskDialog = ({ preselectedAssignee, mode = 'task' }: CreateTaskDial
                             </div>
                             <Switch
                               checked={usarCreditos}
+                              className="shrink-0"
                               onCheckedChange={(v) => setUsarCreditos(!!v)}
                             />
                           </div>
@@ -1518,14 +1451,14 @@ const CreateTaskDialog = ({ preselectedAssignee, mode = 'task' }: CreateTaskDial
                         {/* Comprovante de Pagamento - obrigatório quando PAGO, opcional se Usar Créditos */}
                         {pagamento === 'pago' && (
                           <div
-                            className={`md:col-span-2 rounded-md border px-3 py-2 space-y-2 ${
+                            className={`min-w-0 w-full rounded-md border px-3 py-2 space-y-2 ${
                               usarCreditos
                                 ? 'border-border bg-muted/20'
                                 : 'border-warning/40 bg-warning/5'
                             }`}
                           >
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="text-xs font-medium text-foreground">
+                            <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+                              <span className="min-w-0 break-words text-xs font-medium text-foreground">
                                 💳 Comprovante de Pagamento{' '}
                                 {usarCreditos ? (
                                   <span className="text-muted-foreground font-normal">
@@ -1535,7 +1468,7 @@ const CreateTaskDialog = ({ preselectedAssignee, mode = 'task' }: CreateTaskDial
                                   <span className="text-destructive">*</span>
                                 )}
                               </span>
-                              <div className="flex gap-1">
+                              <div className="flex min-w-0 flex-wrap gap-1">
                                 <Button
                                   type="button"
                                   size="sm"
@@ -1562,7 +1495,7 @@ const CreateTaskDialog = ({ preselectedAssignee, mode = 'task' }: CreateTaskDial
                             </div>
                             <Textarea
                               placeholder="Cole aqui (Ctrl+V) uma imagem do comprovante ou clique em Anexar para enviar imagem/PDF"
-                              className="min-h-[44px] text-xs resize-none"
+                              className="min-h-[64px] w-full min-w-0 resize-none text-xs"
                               readOnly
                               onPaste={handleProofPaste}
                             />
@@ -1599,14 +1532,14 @@ const CreateTaskDialog = ({ preselectedAssignee, mode = 'task' }: CreateTaskDial
                         )}
 
                         {/* Boleto */}
-                        <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
+                        <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 rounded-md border border-border px-3 py-2">
                           <span className="text-sm text-foreground">Boleto</span>
-                          <div className="flex gap-1">
+                          <div className="flex min-w-0 flex-wrap gap-1">
                             <Button
                               type="button"
                               size="sm"
                               variant={boleto === 'com' ? 'default' : 'outline'}
-                              className="h-7 text-xs px-3"
+                              className="h-auto min-h-7 whitespace-normal px-2.5 py-1 text-xs"
                               onClick={() => setBoleto(boleto === 'com' ? '' : 'com')}
                             >
                               Com Boleto
@@ -1615,7 +1548,7 @@ const CreateTaskDialog = ({ preselectedAssignee, mode = 'task' }: CreateTaskDial
                               type="button"
                               size="sm"
                               variant={boleto === 'sem' ? 'default' : 'outline'}
-                              className="h-7 text-xs px-3"
+                              className="h-auto min-h-7 whitespace-normal px-2.5 py-1 text-xs"
                               onClick={() => setBoleto(boleto === 'sem' ? '' : 'sem')}
                             >
                               Sem Boleto
@@ -1624,14 +1557,14 @@ const CreateTaskDialog = ({ preselectedAssignee, mode = 'task' }: CreateTaskDial
                         </div>
 
                         {/* Emissão de NF (opcional) */}
-                        <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
+                        <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 rounded-md border border-border px-3 py-2">
                           <span className="text-sm text-foreground">🧾 Emissão de NF</span>
-                          <div className="flex gap-1">
+                          <div className="flex min-w-0 flex-wrap gap-1">
                             <Button
                               type="button"
                               size="sm"
                               variant={emissaoNF === 'sim' ? 'default' : 'outline'}
-                              className="h-7 text-xs px-3"
+                              className="h-auto min-h-7 whitespace-normal px-2.5 py-1 text-xs"
                               onClick={() => setEmissaoNF(emissaoNF === 'sim' ? '' : 'sim')}
                             >
                               Sim
@@ -1640,7 +1573,7 @@ const CreateTaskDialog = ({ preselectedAssignee, mode = 'task' }: CreateTaskDial
                               type="button"
                               size="sm"
                               variant={emissaoNF === 'nao' ? 'default' : 'outline'}
-                              className="h-7 text-xs px-3"
+                              className="h-auto min-h-7 whitespace-normal px-2.5 py-1 text-xs"
                               onClick={() => setEmissaoNF(emissaoNF === 'nao' ? '' : 'nao')}
                             >
                               Não
@@ -1649,14 +1582,14 @@ const CreateTaskDialog = ({ preselectedAssignee, mode = 'task' }: CreateTaskDial
                         </div>
 
                         {/* Maquininha */}
-                        <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
+                        <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 rounded-md border border-border px-3 py-2">
                           <span className="text-sm text-foreground">Maquininha</span>
-                          <div className="flex gap-1">
+                          <div className="flex min-w-0 flex-wrap gap-1">
                             <Button
                               type="button"
                               size="sm"
                               variant={maquininha === 'sim' ? 'default' : 'outline'}
-                              className="h-7 text-xs px-3"
+                              className="h-auto min-h-7 whitespace-normal px-2.5 py-1 text-xs"
                               onClick={() => setMaquininha(maquininha === 'sim' ? '' : 'sim')}
                             >
                               Levar
@@ -1665,7 +1598,7 @@ const CreateTaskDialog = ({ preselectedAssignee, mode = 'task' }: CreateTaskDial
                               type="button"
                               size="sm"
                               variant={maquininha === 'nao' ? 'default' : 'outline'}
-                              className="h-7 text-xs px-3"
+                              className="h-auto min-h-7 whitespace-normal px-2.5 py-1 text-xs"
                               onClick={() => setMaquininha(maquininha === 'nao' ? '' : 'nao')}
                             >
                               Não Levar
@@ -1674,15 +1607,35 @@ const CreateTaskDialog = ({ preselectedAssignee, mode = 'task' }: CreateTaskDial
                         </div>
                       </div>
 
+                      {(pagamento === 'pago' || boleto === 'com' || emissaoNF === 'sim') && (
+                        <div
+                          className="space-y-1 rounded-md bg-muted/40 p-3 text-xs text-muted-foreground"
+                          aria-live="polite"
+                        >
+                          <p className="font-medium text-foreground">Encaminhamento automático</p>
+                          {pagamento === 'pago' && <p>Carol · Baixa de Pedido</p>}
+                          {(boleto === 'com' || emissaoNF === 'sim') && (
+                            <p>
+                              Carol e Patrícia ·{' '}
+                              {boleto === 'com' && emissaoNF === 'sim'
+                                ? 'NF + Boleto'
+                                : boleto === 'com'
+                                  ? 'Boleto'
+                                  : 'Emissão de NF'}
+                            </p>
+                          )}
+                        </div>
+                      )}
+
                       {/* Forma de Entrega */}
                       <div className="rounded-md border border-border px-3 py-2 space-y-2">
                         <span className="text-sm text-foreground">Forma de Entrega</span>
-                        <div className="grid grid-cols-2 gap-2">
+                        <div className="grid min-w-0 grid-cols-2 gap-2">
                           <Button
                             type="button"
                             size="sm"
                             variant={formaEntrega === 'motoboy' ? 'default' : 'outline'}
-                            className="h-8 text-xs"
+                            className="h-auto min-h-8 min-w-0 whitespace-normal px-2 py-1 text-xs"
                             onClick={() => {
                               setFormaEntrega(formaEntrega === 'motoboy' ? '' : 'motoboy');
                               setModalidadeCorreios('');
@@ -1694,7 +1647,7 @@ const CreateTaskDialog = ({ preselectedAssignee, mode = 'task' }: CreateTaskDial
                             type="button"
                             size="sm"
                             variant={formaEntrega === 'correios' ? 'default' : 'outline'}
-                            className="h-8 text-xs"
+                            className="h-auto min-h-8 min-w-0 whitespace-normal px-2 py-1 text-xs"
                             onClick={() => {
                               setFormaEntrega(formaEntrega === 'correios' ? '' : 'correios');
                               if (formaEntrega === 'correios') setModalidadeCorreios('');
@@ -1706,7 +1659,7 @@ const CreateTaskDialog = ({ preselectedAssignee, mode = 'task' }: CreateTaskDial
                             type="button"
                             size="sm"
                             variant={formaEntrega === 'transportadora' ? 'default' : 'outline'}
-                            className="h-8 text-xs"
+                            className="h-auto min-h-8 min-w-0 whitespace-normal px-2 py-1 text-xs"
                             onClick={() => {
                               const next =
                                 formaEntrega === 'transportadora' ? '' : 'transportadora';
@@ -1724,7 +1677,7 @@ const CreateTaskDialog = ({ preselectedAssignee, mode = 'task' }: CreateTaskDial
                             type="button"
                             size="sm"
                             variant={formaEntrega === 'balcao' ? 'default' : 'outline'}
-                            className="h-8 text-xs"
+                            className="h-auto min-h-8 min-w-0 whitespace-normal px-2 py-1 text-xs"
                             onClick={() => {
                               setFormaEntrega(formaEntrega === 'balcao' ? '' : 'balcao');
                               setModalidadeCorreios('');
@@ -1736,7 +1689,7 @@ const CreateTaskDialog = ({ preselectedAssignee, mode = 'task' }: CreateTaskDial
                             type="button"
                             size="sm"
                             variant={formaEntrega === 'uber' ? 'default' : 'outline'}
-                            className="h-8 text-xs sm:col-span-2"
+                            className="col-span-2 h-auto min-h-8 min-w-0 whitespace-normal px-2 py-1 text-xs"
                             onClick={() => {
                               setFormaEntrega(formaEntrega === 'uber' ? '' : 'uber');
                               setModalidadeCorreios('');
@@ -1758,14 +1711,14 @@ const CreateTaskDialog = ({ preselectedAssignee, mode = 'task' }: CreateTaskDial
                         )}
                         {formaEntrega === 'correios' && (
                           <div className="space-y-2 pt-1">
-                            <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
+                            <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 rounded-md border border-border px-3 py-2">
                               <span className="text-sm text-foreground">Modalidade</span>
-                              <div className="flex gap-1">
+                              <div className="flex min-w-0 flex-wrap gap-1">
                                 <Button
                                   type="button"
                                   size="sm"
                                   variant={modalidadeCorreios === 'sedex' ? 'default' : 'outline'}
-                                  className="h-7 text-xs px-3"
+                                  className="h-auto min-h-7 whitespace-normal px-2.5 py-1 text-xs"
                                   onClick={() =>
                                     setModalidadeCorreios(
                                       modalidadeCorreios === 'sedex' ? '' : 'sedex'
@@ -1778,7 +1731,7 @@ const CreateTaskDialog = ({ preselectedAssignee, mode = 'task' }: CreateTaskDial
                                   type="button"
                                   size="sm"
                                   variant={modalidadeCorreios === 'pac' ? 'default' : 'outline'}
-                                  className="h-7 text-xs px-3"
+                                  className="h-auto min-h-7 whitespace-normal px-2.5 py-1 text-xs"
                                   onClick={() =>
                                     setModalidadeCorreios(modalidadeCorreios === 'pac' ? '' : 'pac')
                                   }
@@ -1798,14 +1751,14 @@ const CreateTaskDialog = ({ preselectedAssignee, mode = 'task' }: CreateTaskDial
                           <div className="space-y-2 pt-1">
                             <div className="rounded-md border border-border px-3 py-2 space-y-2">
                               <span className="text-sm text-foreground">Transportadora</span>
-                              <div className="grid grid-cols-3 gap-1.5">
+                              <div className="grid min-w-0 grid-cols-2 gap-1.5">
                                 {activeCarriers.map((c) => (
                                   <Button
                                     key={c.id}
                                     type="button"
                                     size="sm"
                                     variant={transportadora === c.name ? 'default' : 'outline'}
-                                    className="h-8 text-xs"
+                                    className="h-auto min-h-8 min-w-0 whitespace-normal px-2 py-1 text-xs"
                                     onClick={() => {
                                       setTransportadora(transportadora === c.name ? '' : c.name);
                                       setTransportadoraOutros('');
@@ -1818,7 +1771,7 @@ const CreateTaskDialog = ({ preselectedAssignee, mode = 'task' }: CreateTaskDial
                                   type="button"
                                   size="sm"
                                   variant={transportadora === 'outros' ? 'default' : 'outline'}
-                                  className="h-8 text-xs"
+                                  className="h-auto min-h-8 min-w-0 whitespace-normal px-2 py-1 text-xs"
                                   onClick={() =>
                                     setTransportadora(transportadora === 'outros' ? '' : 'outros')
                                   }
@@ -1837,7 +1790,7 @@ const CreateTaskDialog = ({ preselectedAssignee, mode = 'task' }: CreateTaskDial
                                   placeholder="Nome da transportadora"
                                   value={transportadoraOutros}
                                   onChange={(e) => setTransportadoraOutros(e.target.value)}
-                                  className="h-8 text-xs"
+                                  className="h-auto min-h-8 min-w-0 whitespace-normal px-2 py-1 text-xs"
                                 />
                               )}
                             </div>
