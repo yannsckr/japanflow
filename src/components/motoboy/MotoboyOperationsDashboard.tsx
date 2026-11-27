@@ -1,4 +1,5 @@
 import MotoboyAdminPanel from './MotoboyAdminPanel';
+import AddressAutocomplete from '@/components/departmental/AddressAutocomplete';
 import { useMemo, useState } from 'react';
 import {
   Bike,
@@ -46,7 +47,7 @@ interface Props {
   onDesignateRide: (rideId: string, motoboyId: string) => Promise<void>;
   onReassignRide: (rideId: string, motoboyId: string) => Promise<void>;
   onDeleteRide: (rideId: string) => Promise<void>;
-  onEditRide: (rideId: string, clientName: string, address: string) => Promise<void>;
+  onEditRide: (rideId: string, clientName: string, address: string, notes: string) => Promise<void>;
   onOpenOverview: () => void;
 }
 
@@ -122,17 +123,19 @@ export default function MotoboyOperationsDashboard({
   const [editingRide, setEditingRide] = useState<MotoboyAssignment | null>(null);
   const [editName, setEditName] = useState('');
   const [editAddress, setEditAddress] = useState('');
+  const [editNotes, setEditNotes] = useState('');
   const [editBusy, setEditBusy] = useState(false);
   const openEdit = (ride: MotoboyAssignment) => {
     setEditName(ride.clientName || ride.description);
     setEditAddress(ride.location || '');
+    setEditNotes(ride.notes || '');
     setEditingRide(ride);
   };
   const saveEdit = async () => {
     if (!editingRide || editBusy || !canManage || !editName.trim() || !editAddress.trim()) return;
     setEditBusy(true);
     try {
-      await onEditRide(editingRide.id, editName, editAddress);
+      await onEditRide(editingRide.id, editName, editAddress, editNotes);
       setEditingRide(null);
       toast.success('Entrega atualizada.');
     } catch (error) {
@@ -796,21 +799,32 @@ export default function MotoboyOperationsDashboard({
                 disabled={editBusy}
               />
             </div>
-            <div className="space-y-1.5">
-              <label htmlFor="jf-edit-address" className="text-sm font-medium">
-                Endereço completo
-              </label>
-              <textarea
-                id="jf-edit-address"
-                rows={3}
+            <fieldset disabled={editBusy} className="space-y-4">
+              <AddressAutocomplete
+                key={editingRide?.id}
                 value={editAddress}
-                onChange={(event) => setEditAddress(event.target.value)}
+                onChange={(address) => setEditAddress(address)}
+                label="Endereço da entrega"
                 required
-                maxLength={450}
-                disabled={editBusy}
-                className="w-full rounded-md border border-input bg-background p-3 text-sm"
               />
-            </div>
+              <p className="text-xs text-muted-foreground">
+                Busque o endereço no Google Maps ou informe manualmente.
+              </p>
+              <div className="space-y-1.5">
+                <label htmlFor="jf-edit-notes" className="text-sm font-medium">
+                  Observação da entrega
+                </label>
+                <textarea
+                  id="jf-edit-notes"
+                  rows={3}
+                  value={editNotes}
+                  onChange={(event) => setEditNotes(event.target.value)}
+                  maxLength={10000}
+                  placeholder="Complemento, referência ou instruções para o motoboy"
+                  className="w-full rounded-md border border-input bg-background p-3 text-sm"
+                />
+              </div>
+            </fieldset>
             <p className="text-xs text-muted-foreground">
               Apenas os dados da entrega serão alterados. O pedido original será preservado.
             </p>

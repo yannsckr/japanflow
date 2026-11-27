@@ -975,9 +975,13 @@ export const useDepartmental = () => {
   // Edits the pending delivery only; the original sales order is not changed.
   // Transaction prevents an edit racing with dispatch or route creation.
   const editPendingMotoboyDelivery = useCallback(
-    async (id: string, clientName: string, location: string) => {
+    async (id: string, clientName: string, location: string, notes: string) => {
       const client = clientName.trim();
       const address = location.trim();
+      const observation = notes.trim();
+      if (observation.length > 10000) {
+        throw new Error('Observação muito longa.');
+      }
       if (!client || client.length > 180 || !address || address.length > 450) {
         throw new Error('Informe nome (até 180 caracteres) e endereço (até 450 caracteres).');
       }
@@ -1012,6 +1016,7 @@ export const useDepartmental = () => {
           client_name: client,
           description,
           location: address,
+          notes: observation || null,
           updated_at: serverTimestamp(),
         };
         if (addressChanged) {
@@ -1033,6 +1038,7 @@ export const useDepartmental = () => {
               description,
               `Cliente: ${client}`,
               `Local: ${address}`,
+              observation ? `Observação: ${observation}` : '',
               ride.ride_value ? `Valor: R$ ${Number(ride.ride_value).toFixed(2)}` : '',
             ]
               .filter(Boolean)

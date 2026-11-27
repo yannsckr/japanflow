@@ -1005,7 +1005,9 @@ const DepartmentalPage = () => {
                 dept.updateMotoboyAssignment(id, { assignedTo: riderId })
               }
               onDeleteRide={(id) => dept.deleteMotoboyDelivery(id)}
-              onEditRide={(id, name, address) => dept.editPendingMotoboyDelivery(id, name, address)}
+              onEditRide={(id, name, address, notes) =>
+                dept.editPendingMotoboyDelivery(id, name, address, notes)
+              }
               isMotoboyOnly={
                 !isAdmin &&
                 userSectors.includes('motoboys' as Sector) &&
