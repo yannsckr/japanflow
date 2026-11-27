@@ -512,7 +512,7 @@ export default function MotoboyExperience({ initialScreen = 'home' }: { initialS
   const otaState = useOtaOperationalState({
     userId: currentUser?.id,
     ridesConfirmed: rides.serverConfirmed && !rides.loading && !rides.error,
-    openRides: rides.pending.length + rides.active.length,
+    openRides: rides.active.length,
     interfaceBusy: busy || photoBusy || trackingBusy || pushBusy || !!file,
     onHomeScreen: screen === 'home',
   });

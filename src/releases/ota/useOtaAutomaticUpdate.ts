@@ -32,7 +32,7 @@ export function useOtaAutomaticUpdate(
           !failed ||
           sequence.pendingSequence !== 0 ||
           native.signingChannel !== 'release' ||
-          native.versionCode < 19
+          native.versionCode < 20
         )
           return null;
         const version =
@@ -48,7 +48,10 @@ export function useOtaAutomaticUpdate(
           failedSequences: failed,
         };
       },
-      fetchReleases: () => fetchDistributedOtaReleases(nativeCode),
+      fetchReleases: async () =>
+        (await fetchDistributedOtaReleases(nativeCode)).filter(
+          (release) => release.manifest.channel === 'stable' && release.targetUserIds.length === 0
+        ),
     });
     async function tick() {
       if (disposed || active.current || !userId) return;

@@ -44,9 +44,10 @@ export async function distributeOta(
 
     if (
       native.signingChannel !== 'release' ||
-      native.versionCode < 19 ||
-      release.manifest.channel !== 'beta' ||
-      release.manifest.minNativeCode < 19
+      native.versionCode < 20 ||
+      release.manifest.channel !== 'stable' ||
+      release.manifest.minNativeCode < 20 ||
+      release.targetUserIds.length !== 0
     ) {
       return false;
     }

@@ -1,7 +1,8 @@
-import { revokeOtaRelease } from '../otaRevocationApi';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { Zap, Package, Lock } from 'lucide-react';
+import { getFunctions, httpsCallable } from 'firebase/functions';
+import { Zap, Package } from 'lucide-react';
 import { toast } from 'sonner';
+import app from '@/lib/firebase';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -9,14 +10,21 @@ import { subscribeOtaReleases, type OtaRelease } from '../otaService';
 import { uploadOtaDraft, type OtaDraftInput } from '../otaUpload';
 import { validateOtaPackage } from '../otaPackageApi';
 import { publishOtaRelease } from '../otaPublicationApi';
+import { revokeOtaRelease } from '../otaRevocationApi';
 
+type Mode = 'stable' | 'disabled';
+type Control = { mode: Mode; configured: boolean };
+const manageControl = httpsCallable<{ action: 'get' | 'set'; mode?: Mode }, Control>(
+  getFunctions(app, 'southamerica-east1'),
+  'japanflowManageOtaDistribution'
+);
 const initialForm: OtaDraftInput = {
   bundleVersion: '',
   title: '',
   notes: '',
-  channel: 'beta',
-  minNativeCode: 18,
-  maxNativeCode: 18,
+  channel: 'stable',
+  minNativeCode: 20,
+  maxNativeCode: 20,
 };
 
 export default function OtaReleasePanel({ userId }: { userId: string }) {
@@ -27,96 +35,141 @@ export default function OtaReleasePanel({ userId }: { userId: string }) {
   const [progress, setProgress] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [control, setControl] = useState<Control | null>(null);
+  const [controlError, setControlError] = useState('');
+  const [phase, setPhase] = useState('');
   const fileInput = useRef<HTMLInputElement>(null);
   const submitting = useRef(false);
-  const [audiences, setAudiences] = useState<Record<string, string>>({});
-  const [checked, setChecked] = useState<Record<string, boolean>>({});
-  async function manageRelease(release: OtaRelease, action: 'validate' | 'publish') {
-    if (submitting.current || busy) return;
-    const ids = (audiences[release.id] ?? '').split(/[\s,;]+/).filter(Boolean);
-    if (action === 'publish') {
-      if (release.channel === 'beta' && !ids.length) {
-        toast.error('Informe os IDs dos motoboys beta.');
-        return;
-      }
-      if (!window.confirm('Registrar publicacao assinada? A distribuicao continua bloqueada.'))
-        return;
-    }
+
+  useEffect(
+    () =>
+      subscribeOtaReleases(
+        (items) => {
+          setReleases(items);
+          setLoading(false);
+          setError('');
+        },
+        (reason) => {
+          setError(reason.message);
+          setLoading(false);
+        }
+      ),
+    []
+  );
+
+  useEffect(() => {
+    let disposed = false;
+    void manageControl({ action: 'get' })
+      .then(({ data }) => {
+        if (!disposed) {
+          setControl(data);
+          setControlError('');
+        }
+      })
+      .catch(() => {
+        if (!disposed) setControlError('Controle OTA indisponivel.');
+      });
+    return () => {
+      disposed = true;
+    };
+  }, []);
+
+  async function run(action: () => Promise<void>) {
+    if (submitting.current) return;
     submitting.current = true;
     setBusy(true);
+    setProgress(0);
     try {
-      if (action === 'validate') {
-        const result = await validateOtaPackage(release.id);
-        if (result.sha256 !== release.sha256 || result.sizeBytes !== release.sizeBytes)
-          throw new Error('Pacote divergente');
-        setChecked((previous) => ({ ...previous, [release.id]: true }));
-        toast.success('Pacote validado.');
-      } else {
-        await publishOtaRelease(release.id, ids);
-        toast.success('Publicacao registrada. Distribuicao bloqueada.');
-      }
+      await action();
     } catch (reason) {
       toast.error(reason instanceof Error ? reason.message : 'Falha na operacao OTA.');
     } finally {
       submitting.current = false;
       setBusy(false);
+      setPhase('');
     }
   }
 
-  useEffect(() => {
-    return subscribeOtaReleases(
-      (items) => {
-        setReleases(items);
-        setLoading(false);
-        setError('');
-      },
-      (reason) => {
-        setError(reason.message);
-        setLoading(false);
+  async function refreshControl() {
+    await run(async () => {
+      try {
+        const { data } = await manageControl({ action: 'get' });
+        setControl(data);
+        setControlError('');
+      } catch (reason) {
+        setControl(null);
+        setControlError('Controle OTA indisponivel.');
+        throw reason;
       }
-    );
-  }, []);
+    });
+  }
+
+  async function changeMode(mode: Mode) {
+    if (
+      !window.confirm(
+        mode === 'stable'
+          ? 'Ativar distribuicao para todos os motoboys compativeis?'
+          : 'Pausar novas autorizacoes OTA?'
+      )
+    )
+      return;
+    await run(async () => {
+      setPhase('Atualizando distribuicao...');
+      try {
+        const { data } = await manageControl({ action: 'set', mode });
+        setControl(data);
+        setControlError('');
+        toast.success(mode === 'stable' ? 'Distribuicao Stable ativa.' : 'Distribuicao pausada.');
+      } catch (reason) {
+        setControl(null);
+        setControlError('Estado da distribuicao nao confirmado.');
+        throw reason;
+      }
+    });
+  }
+
+  async function validateAndPublish(draftId: string, expected?: OtaRelease) {
+    setPhase('Validando pacote...');
+    const validated = await validateOtaPackage(draftId);
+    if (
+      expected &&
+      (validated.sha256 !== expected.sha256 || validated.sizeBytes !== expected.sizeBytes)
+    )
+      throw new Error('Pacote divergente');
+    setPhase('Protegendo e assinando pacote...');
+    await publishOtaRelease(draftId, []);
+    toast.success('Atualizacao Stable publicada.');
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-
-    if (!file || !userId || submitting.current) return;
-    submitting.current = true;
-    setBusy(true);
-    setProgress(0);
-
-    try {
-      await uploadOtaDraft(file, form, userId, setProgress);
-      toast.success('Rascunho OTA criado com sucesso.');
+    if (!file || !userId || !control || submitting.current) return;
+    if (
+      !window.confirm(
+        control.mode === 'stable'
+          ? 'Publicar atualizacao para todos os motoboys compativeis?'
+          : 'Publicar atualizacao com distribuicao pausada?'
+      )
+    )
+      return;
+    await run(async () => {
+      setPhase('Enviando pacote...');
+      const draftId = await uploadOtaDraft(
+        file,
+        { ...form, channel: 'stable' },
+        userId,
+        setProgress
+      );
       setForm(initialForm);
       setFile(null);
       if (fileInput.current) fileInput.current.value = '';
-    } catch (reason) {
-      toast.error(reason instanceof Error ? reason.message : 'Falha ao preparar pacote OTA.');
-    } finally {
-      submitting.current = false;
-      setBusy(false);
-    }
-  }
-
-  async function revokeRelease(release: OtaRelease) {
-    if (
-      submitting.current ||
-      busy ||
-      !window.confirm('Revogar esta release? Novas entregas do pacote serao bloqueadas.')
-    )
-      return;
-    submitting.current = true;
-    setBusy(true);
-    try {
-      await revokeOtaRelease(release.id);
-      toast.success('Release revogada.');
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Falha ao revogar release.');
-    } finally {
-      submitting.current = false;
-      setBusy(false);
-    }
+      try {
+        await validateAndPublish(draftId);
+      } catch (reason) {
+        toast.info('Rascunho salvo. Consulte o historico antes de tentar novamente.');
+        throw reason;
+      }
+    });
   }
 
   return (
@@ -127,49 +180,75 @@ export default function OtaReleasePanel({ userId }: { userId: string }) {
           <div>
             <h2 className="font-semibold">JapanFlow Live Updates</h2>
             <p className="text-xs text-muted-foreground">
-              Pacotes de atualizacao do frontend Android.
+              Canal Stable - todos os motoboys compativeis.
             </p>
           </div>
         </div>
-        <span className="flex items-center gap-2 text-xs text-muted-foreground">
-          <Lock size={14} /> Distribuicao bloqueada
+        <span className="rounded-md border px-3 py-1 text-xs" role="status">
+          {control
+            ? control.mode === 'stable'
+              ? 'Distribuicao ativa'
+              : 'Distribuicao pausada'
+            : 'Estado nao confirmado'}
         </span>
       </header>
-
+      <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-card p-4">
+        <Button
+          type="button"
+          variant="outline"
+          disabled={busy}
+          onClick={() => void refreshControl()}
+        >
+          Consultar estado
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          disabled={busy || control?.mode === 'disabled'}
+          onClick={() => void changeMode('disabled')}
+        >
+          Pausar distribuicao
+        </Button>
+        <Button
+          type="button"
+          disabled={busy || !control?.configured || control.mode === 'stable'}
+          onClick={() => void changeMode('stable')}
+        >
+          Ativar Stable
+        </Button>
+        {controlError && (
+          <p role="alert" className="text-xs text-destructive">
+            {controlError}
+          </p>
+        )}
+        {control && !control.configured && (
+          <p className="text-xs text-destructive">
+            Configure o Android App ID no documento de controle.
+          </p>
+        )}
+      </div>
       <form onSubmit={submit} className="space-y-4 rounded-xl border bg-card p-5">
-        <h3 className="font-medium">Novo pacote OTA</h3>
+        <h3 className="font-medium">Nova atualizacao Stable</h3>
         <fieldset disabled={busy} className="space-y-4">
           <div className="grid gap-4 md:grid-cols-2">
             <label className="space-y-1 text-sm">
               Versao do bundle
               <Input
                 required
-                placeholder="48.0.1"
+                placeholder="49.0.0"
                 value={form.bundleVersion}
                 onChange={(e) => setForm({ ...form, bundleVersion: e.target.value })}
               />
             </label>
             <label className="space-y-1 text-sm">
               Canal
-              <select
-                className="h-10 w-full rounded-md border bg-background px-3"
-                value={form.channel}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    channel: e.target.value === 'stable' ? 'stable' : 'beta',
-                  })
-                }
-              >
-                <option value="beta">Beta</option>
-                <option value="stable">Estavel</option>
-              </select>
+              <Input value="Stable - todos" disabled />
             </label>
             <label className="space-y-1 text-sm">
               VersionCode minimo
               <Input
                 type="number"
-                min={18}
+                min={20}
                 required
                 value={form.minNativeCode}
                 onChange={(e) => setForm({ ...form, minNativeCode: Number(e.target.value) })}
@@ -186,7 +265,6 @@ export default function OtaReleasePanel({ userId }: { userId: string }) {
               />
             </label>
           </div>
-
           <label className="block space-y-1 text-sm">
             Titulo
             <Input
@@ -196,7 +274,6 @@ export default function OtaReleasePanel({ userId }: { userId: string }) {
               onChange={(e) => setForm({ ...form, title: e.target.value })}
             />
           </label>
-
           <label className="block space-y-1 text-sm">
             Notas da atualizacao
             <Textarea
@@ -206,7 +283,6 @@ export default function OtaReleasePanel({ userId }: { userId: string }) {
               onChange={(e) => setForm({ ...form, notes: e.target.value })}
             />
           </label>
-
           <label className="block space-y-2 rounded-lg border border-dashed p-5 text-sm">
             <Package size={22} className="text-muted-foreground" />
             Pacote ZIP - ate 100 MB
@@ -219,21 +295,20 @@ export default function OtaReleasePanel({ userId }: { userId: string }) {
             />
           </label>
         </fieldset>
-
         {busy && (
-          <div className="space-y-2" role="status">
-            <p className="text-sm">Preparando pacote: {progress}%</p>
-            <progress className="h-2 w-full" value={progress} max={100} />
+          <div role="status" className="space-y-2">
+            <p className="text-sm">{phase || 'Processando...'}</p>
+            {phase === 'Enviando pacote...' && (
+              <progress className="h-2 w-full" value={progress} max={100} />
+            )}
           </div>
         )}
-
-        <Button disabled={busy || !file || !userId} type="submit">
-          {busy ? 'Processando...' : 'Salvar rascunho'}
+        <Button disabled={busy || !file || !userId || !control} type="submit">
+          Validar e publicar atualizacao
         </Button>
       </form>
-
       <div className="space-y-3">
-        <h3 className="font-semibold">Pacotes cadastrados</h3>
+        <h3 className="font-semibold">Historico de atualizacoes</h3>
         {loading && <p role="status">Carregando pacotes...</p>}
         {error && (
           <p role="alert" className="text-destructive">
@@ -242,7 +317,7 @@ export default function OtaReleasePanel({ userId }: { userId: string }) {
         )}
         {!loading && !error && releases.length === 0 && (
           <p className="rounded-lg border p-5 text-sm text-muted-foreground">
-            Nenhum pacote OTA cadastrado.
+            Nenhum pacote cadastrado.
           </p>
         )}
         {releases.map((release) => (
@@ -253,58 +328,53 @@ export default function OtaReleasePanel({ userId }: { userId: string }) {
             <div className="min-w-0 space-y-1">
               <p className="font-medium">{release.title}</p>
               <p className="text-xs text-muted-foreground">
-                {release.bundleVersion} / {release.channel} / Android
-              </p>
-              <p className="text-xs text-muted-foreground">
-                Native {release.minNativeCode} - {release.maxNativeCode}
+                {release.bundleVersion} / {release.channel} / Android {release.minNativeCode} -{' '}
+                {release.maxNativeCode}
               </p>
               <p className="break-all font-mono text-xs text-muted-foreground">
                 SHA-256: {release.sha256}
               </p>
             </div>
-            {release.status === 'draft' && (
-              <div className="w-full space-y-2 border-t pt-3">
-                <label className="block text-xs text-muted-foreground">
-                  IDs dos motoboys (separados por virgula; vazio no estavel = todos)
-                  <Input
-                    disabled={busy}
-                    value={audiences[release.id] ?? ''}
-                    onChange={(e) =>
-                      setAudiences((previous) => ({ ...previous, [release.id]: e.target.value }))
-                    }
-                  />
-                </label>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={busy}
-                    onClick={() => void manageRelease(release, 'validate')}
-                  >
-                    {checked[release.id] ? 'Validado - verificar novamente' : 'Validar pacote'}
-                  </Button>
-                  <Button
-                    type="button"
-                    disabled={busy || !checked[release.id]}
-                    onClick={() => void manageRelease(release, 'publish')}
-                  >
-                    Assinar e publicar
-                  </Button>
-                </div>
-              </div>
-            )}
+            {release.status === 'draft' &&
+              release.channel === 'stable' &&
+              release.minNativeCode >= 20 && (
+                <Button
+                  type="button"
+                  disabled={busy || !control}
+                  onClick={() => {
+                    if (window.confirm('Validar e publicar este rascunho Stable?'))
+                      void run(() => validateAndPublish(release.id, release));
+                  }}
+                >
+                  Validar e publicar
+                </Button>
+              )}
             {release.status === 'published' && (
               <Button
                 type="button"
                 variant="outline"
                 disabled={busy}
-                onClick={() => void revokeRelease(release)}
+                onClick={() => {
+                  if (
+                    window.confirm(
+                      'Revogar esta release? Isso bloqueia novas entregas, mas nao reverte instalacoes existentes.'
+                    )
+                  )
+                    void run(async () => {
+                      await revokeOtaRelease(release.id);
+                      toast.success('Release revogada.');
+                    });
+                }}
               >
                 Revogar release
               </Button>
             )}
             <span className="rounded-md border px-3 py-1 text-xs">
-              {release.status === 'draft' ? 'Rascunho' : release.status}
+              {release.status === 'draft'
+                ? 'Rascunho'
+                : release.status === 'published'
+                  ? 'Publicada'
+                  : 'Revogada'}
             </span>
           </article>
         ))}

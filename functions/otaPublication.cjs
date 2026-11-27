@@ -33,7 +33,7 @@ exports.japanflowPublishOtaRelease=onCall({region:'southamerica-east1', serviceA
   const initial=await draftRef.get();
   const draft=initial.data();
   if (!draft || draft.status!=='draft') throw new HttpsError('failed-precondition','Draft unavailable or already published');
-  if (draft.channel==='beta' && !ids.length) throw new HttpsError('invalid-argument','Beta audience required');
+  if (draft.channel !== 'stable' || ids.length !== 0 || !Number.isSafeInteger(draft.minNativeCode) || draft.minNativeCode < 20) throw new HttpsError('invalid-argument','Stable release with native code 20+ and no audience required');
   // Check target identities, never trust a client-supplied user role.
   if (ids.length) {
     const targets=await db.getAll(...ids.map(id=>db.doc(`users/${id}`)));
@@ -76,5 +76,28 @@ exports.japanflowRevokeOtaRelease = onCall({region:'southamerica-east1', service
     tx.update(releaseRef,{revokedAt:FieldValue.serverTimestamp(),revokedBy:actor});
     tx.update(draftRef,{status:'revoked',revokedAt:FieldValue.serverTimestamp(),revokedBy:actor});
     return {revoked:true};
+  });
+});
+
+
+exports.japanflowManageOtaDistribution = onCall({region:'southamerica-east1', serviceAccount:'japanflow-ota@japanflow-erp.iam.gserviceaccount.com', enforceAppCheck:true, maxInstances:2, timeoutSeconds:30}, async request => {
+  const actor = await requirePublisher(request);
+  const action = request.data?.action;
+  if (!['get','set'].includes(action)) throw new HttpsError('invalid-argument','Invalid control action');
+  const db = getFirestore();
+  const ref = db.doc('japanflow_ota_distribution/_control');
+  if (action === 'get') {
+    const control = (await ref.get()).data();
+    const configured = typeof control?.androidAppId === 'string' && /^1:1079648624157:android:[a-f0-9]+$/.test(control.androidAppId);
+    return {mode: control?.mode === 'stable' && configured ? 'stable' : 'disabled', configured};
+  }
+  const mode = request.data?.mode;
+  if (!['disabled','stable'].includes(mode)) throw new HttpsError('invalid-argument','Invalid distribution mode');
+  return db.runTransaction(async tx => {
+    const control = (await tx.get(ref)).data();
+    const configured = typeof control?.androidAppId === 'string' && /^1:1079648624157:android:[a-f0-9]+$/.test(control.androidAppId);
+    if (mode === 'stable' && !configured) throw new HttpsError('failed-precondition','Android App ID not configured');
+    tx.set(ref,{mode,pilotUserIds:[],updatedBy:actor,updatedAt:FieldValue.serverTimestamp()},{merge:true});
+    return {mode,configured};
   });
 });

@@ -117,7 +117,7 @@ export function useOtaOperationalState({
 
           journeyPendingWrites = snapshot.metadata.hasPendingWrites;
 
-          journeyOpen = !data?.started_at || !data?.ended_at;
+          journeyOpen = !!data?.started_at && !data?.ended_at;
 
           if (!journeyKnown || journeyPendingWrites) {
             detector?.reset();
