@@ -2,7 +2,8 @@ import { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { useApp } from '@/contexts/AppContext';
 import { User, ChatMessage } from '@/types';
 import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
+import ChatComposer from './ChatComposer';
+import { showChatCaption } from './chatCaption';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import {
   Sheet,
@@ -737,7 +738,7 @@ const ChatPanel = ({ otherUser }: ChatPanelProps) => {
                   <SafeChatImage
                     src={msg.attachmentUrl}
                     alt="Imagem enviada no chat"
-                    className="max-h-56 max-w-full cursor-pointer rounded-xl object-cover transition-opacity hover:opacity-90"
+                    className="h-auto max-h-80 w-[280px] max-w-full cursor-zoom-in rounded-xl object-contain transition-opacity hover:opacity-90"
                     onClick={() => setEnlargedImage(msg.attachmentUrl || null)}
                   />
                 )}
@@ -755,9 +756,16 @@ const ChatPanel = ({ otherUser }: ChatPanelProps) => {
               </div>
             )}
 
-            <p className={cn('whitespace-pre-wrap break-words', msg.deleted && 'italic')}>
-              <ChatRichText text={msg.content || ''} />
-            </p>
+            {showChatCaption(
+              msg.content,
+              msg.attachmentType,
+              Boolean(msg.attachmentUrl),
+              Boolean(msg.deleted)
+            ) && (
+              <p className={cn('whitespace-pre-wrap break-words', msg.deleted && 'italic')}>
+                <ChatRichText text={msg.content || ''} />
+              </p>
+            )}
 
             {!msg.deleted && Object.values(msg.reactions || {}).length > 0 && (
               <div className="mt-1 flex gap-1 text-[11px]" aria-label="Reações da mensagem">
@@ -1024,7 +1032,7 @@ const ChatPanel = ({ otherUser }: ChatPanelProps) => {
             </div>
           )}
         </div>
-        <Textarea
+        <ChatComposer
           placeholder={uploadProgress || 'Digite uma mensagem...'}
           value={text}
           onChange={(e) => {
@@ -1035,8 +1043,6 @@ const ChatPanel = ({ otherUser }: ChatPanelProps) => {
           onBlur={stopTyping}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
-          className="max-h-32 min-h-[40px] min-w-0 resize-none py-2 text-sm"
-          rows={1}
         />
 
         <Button onClick={handleSend} disabled={!text.trim()} size="icon" className="shrink-0">

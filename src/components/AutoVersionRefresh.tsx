@@ -20,7 +20,12 @@ export default function AutoVersionRefresh() {
       const dialog = document.querySelector(
         '[role="dialog"], [data-state="open"][role="alertdialog"]'
       );
-      return !editing && !dialog && Date.now() - lastInteraction > 60000;
+      return (
+        !editing &&
+        !dialog &&
+        !document.querySelector('[data-jf-workspace-editing="true"]') &&
+        Date.now() - lastInteraction > 60000
+      );
     };
     const reload = () => window.location.reload();
     const check = async () => {

@@ -88,3 +88,4 @@ exports.japanflowRevokeOtaRelease = require('./otaPublication.cjs').japanflowRev
 exports.motoboyAdmin = require('./motoboyAdmin.cjs').motoboyAdmin;
 
 exports.japanflowManageOtaDistribution = require('./otaPublication.cjs').japanflowManageOtaDistribution;
+exports.japanflowOtaDevices = require('./otaPublication.cjs').japanflowOtaDevices;

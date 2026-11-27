@@ -101,3 +101,32 @@ exports.japanflowManageOtaDistribution = onCall({region:'southamerica-east1', se
     return {mode,configured};
   });
 });
+
+
+exports.japanflowOtaDevices = onCall({region:'southamerica-east1',serviceAccount:'japanflow-ota@japanflow-erp.iam.gserviceaccount.com',enforceAppCheck:true,maxInstances:2,timeoutSeconds:30}, async request => {
+  const db = getFirestore();
+  const devices = db.collection('japanflow_ota_distribution/_devices/installations');
+  if (request.data?.action === 'list') {
+    await requirePublisher(request);
+    const snapshot = await devices.orderBy('lastSeen','desc').limit(500).get();
+    return {devices:snapshot.docs.map(doc=>{const v=doc.data();return {id:doc.id,userId:v.userId,nativeVersion:v.nativeVersion,nativeCode:v.nativeCode,bundleVersion:v.bundleVersion,lastSeen:v.lastSeen?.toMillis()||0};})};
+  }
+  if (request.data?.action !== 'report' || !request.auth?.uid) throw new HttpsError('permission-denied','Authenticated device required');
+  const link=(await db.doc(`auth_links/${request.auth.uid}`).get()).data();
+  const userId=link?.user_id;
+  if (link?.active===false || typeof userId!=='string' || !/^[A-Za-z0-9_-]{1,128}$/.test(userId) || request.data.userId!==userId) throw new HttpsError('permission-denied','Invalid identity');
+  const [user,control]=await Promise.all([db.doc(`users/${userId}`).get(),db.doc('japanflow_ota_distribution/_control').get()]);
+  const u=user.data();
+  const appId=control.data()?.androidAppId;
+  if (!u || u.active===false || !Array.isArray(u.sectors) || !u.sectors.includes('motoboys') || typeof appId!=='string' || !/^1:1079648624157:android:[a-f0-9]+$/.test(appId) || request.app?.appId!==appId) throw new HttpsError('permission-denied','Device not authorized');
+  const {installationId,nativeVersion,nativeCode,bundleVersion}=request.data;
+  const version=v=>typeof v==='string' && /^[0-9]{1,6}[.][0-9]{1,6}[.][0-9]{1,6}$/.test(v);
+  if (typeof installationId!=='string' || !/^[a-f0-9-]{36}$/.test(installationId) || !version(nativeVersion) || !Number.isSafeInteger(nativeCode) || nativeCode<20 || nativeCode>1000000 || !(bundleVersion==='builtin'||version(bundleVersion))) throw new HttpsError('invalid-argument','Invalid device metadata');
+  const ref=devices.doc(`${userId}_${installationId}`);
+  await db.runTransaction(async tx=>{
+    const old=(await tx.get(ref)).data();
+    if (old && old.nativeVersion===nativeVersion && old.nativeCode===nativeCode && old.bundleVersion===bundleVersion && Date.now()-(old.lastSeen?.toMillis()||0)<120000) return;
+    tx.set(ref,{userId,nativeVersion,nativeCode,bundleVersion,lastSeen:FieldValue.serverTimestamp()});
+  });
+  return {ok:true};
+});

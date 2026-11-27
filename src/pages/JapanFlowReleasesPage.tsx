@@ -1,4 +1,5 @@
 import OtaReleasePanel from '@/releases/ota/components/OtaReleasePanel';
+import OtaDevicesPanel from '@/releases/ota/components/OtaDevicesPanel';
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { addDoc, deleteDoc, doc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { getDownloadURL, ref, uploadBytesResumable } from 'firebase/storage';
@@ -382,23 +383,7 @@ export default function JapanFlowReleasesPage() {
 
       {section === 'ota' && <OtaReleasePanel userId={authenticatedUser?.id || ''} />}
 
-      {section === 'devices' && (
-        <section className="space-y-4 rounded-xl border bg-card p-6">
-          <div className="flex items-center gap-3">
-            <MonitorSmartphone size={22} className="text-primary" />
-            <div>
-              <h2 className="font-semibold">Dispositivos</h2>
-              <p className="text-xs text-muted-foreground">Versões instaladas e compatibilidade.</p>
-            </div>
-          </div>
-          <div className="rounded-lg border bg-muted/30 p-4">
-            <p className="text-sm font-medium">Telemetria ainda indisponível</p>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Os dados serão exibidos quando os aplicativos compatíveis estiverem conectados.
-            </p>
-          </div>
-        </section>
-      )}
+      {section === 'devices' && <OtaDevicesPanel />}
 
       {section === 'apk' && (
         <div className="space-y-5">

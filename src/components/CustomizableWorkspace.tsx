@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { reconcileWorkspace, type WorkspaceItem as Item } from '@/lib/workspacePreferences';
 import type { ReactNode, DragEvent } from 'react';
 import { ChevronLeft, ChevronRight, GripVertical, RotateCcw, Save, X } from 'lucide-react';
 import { toast } from 'sonner';
 
 type Slot = 'main' | 'side';
-type Item = { id: string; slot: Slot };
 export type WorkspaceBlock = { id: string; label: string; content: ReactNode };
 const SCHEMA = 1;
 const initial = (signature: string): Item[] =>
@@ -12,21 +13,7 @@ const initial = (signature: string): Item[] =>
     .split('|')
     .filter(Boolean)
     .map((id) => ({ id, slot: id === 'calendar' ? 'side' : 'main' }));
-function valid(data: unknown, blocks: Item[]): data is Item[] {
-  if (!Array.isArray(data) || data.length !== blocks.length) return false;
-  const ids = blocks.map((b) => b.id);
-  return (
-    data.every(
-      (item) =>
-        item &&
-        typeof item.id === 'string' &&
-        ids.includes(item.id) &&
-        (item.slot === 'main' || item.slot === 'side')
-    ) && new Set(data.map((x) => x.id)).size === ids.length
-  );
-}
-
-export default function CustomizableWorkspace({
+function Workspace({
   userId,
   blocks,
   actions,
@@ -38,14 +25,52 @@ export default function CustomizableWorkspace({
   const key = `jf:workspace:v${SCHEMA}:${userId}`;
   const signature = blocks.map((block) => block.id).join('|');
   const defaults = useMemo(() => initial(signature), [signature]);
-  const [layout, setLayout] = useState<Item[]>(defaults);
-  const [draft, setDraft] = useState<Item[]>(defaults);
+  const load = () => {
+    try {
+      return reconcileWorkspace(JSON.parse(localStorage.getItem(key) || 'null'), defaults);
+    } catch {
+      return defaults;
+    }
+  };
+  const [layout, setLayout] = useState<Item[]>(load);
+  const [draft, setDraft] = useState<Item[]>(load);
   const [editing, setEditing] = useState(false);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(() => {
+    try {
+      return localStorage.getItem(`${key}:open`) === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const [tasksHidden, setTasksHidden] = useState(() => {
+    try {
+      return localStorage.getItem(`${key}:tasks-hidden`) === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const toggleOpen = () => {
+    const next = !open;
+    setOpen(next);
+    try {
+      localStorage.setItem(`${key}:open`, String(next));
+    } catch {
+      /* unavailable */
+    }
+  };
+  const toggleTasks = () => {
+    const next = !tasksHidden;
+    setTasksHidden(next);
+    try {
+      localStorage.setItem(`${key}:tasks-hidden`, String(next));
+    } catch {
+      /* unavailable */
+    }
+  };
   useEffect(() => {
     document.documentElement.style.setProperty(
       '--jf-workspace-side',
-      open ? 'min(350px, 36vw)' : '0px'
+      open ? 'min(350px, 90vw)' : '0px'
     );
     return () => {
       document.documentElement.style.removeProperty('--jf-workspace-side');
@@ -53,17 +78,9 @@ export default function CustomizableWorkspace({
   }, [open]);
   const [dragged, setDragged] = useState<string | null>(null);
   useEffect(() => {
-    try {
-      const saved: unknown = JSON.parse(localStorage.getItem(key) || 'null');
-      const next = valid(saved, defaults) ? saved : defaults;
-      setLayout(next);
-      setDraft(next);
-    } catch {
-      setLayout(defaults);
-      setDraft(defaults);
-    }
-    setEditing(false);
-  }, [key, defaults]);
+    setLayout((old) => reconcileWorkspace(old, defaults));
+    setDraft((old) => reconcileWorkspace(old, defaults));
+  }, [defaults]);
   useEffect(() => {
     const start = () => {
       setDraft(layout);
@@ -106,9 +123,12 @@ export default function CustomizableWorkspace({
   const reset = () => {
     try {
       localStorage.removeItem(key);
+      localStorage.removeItem(`${key}:open`);
+      localStorage.removeItem(`${key}:tasks-hidden`);
     } catch {
       /* armazenamento indisponível */
     }
+    setTasksHidden(false);
     setDraft(defaults);
     setLayout(defaults);
     setEditing(false);
@@ -157,12 +177,24 @@ export default function CustomizableWorkspace({
                 </button>
               </div>
             )}
-            {block.content}
+            {block.id === 'tasks' && (
+              <div className="mb-2 flex justify-end">
+                <button
+                  type="button"
+                  className="rounded-lg border px-3 py-2 text-xs font-medium hover:bg-muted"
+                  aria-expanded={!tasksHidden}
+                  onClick={toggleTasks}
+                >
+                  {tasksHidden ? 'Mostrar tarefas' : 'Ocultar tarefas'}
+                </button>
+              </div>
+            )}
+            <div hidden={block.id === 'tasks' && tasksHidden && !editing}>{block.content}</div>
           </div>
         );
       });
   return (
-    <div className="min-w-0 max-w-full space-y-4">
+    <div className="min-w-0 max-w-full space-y-4" data-jf-workspace-editing={editing}>
       <div className="flex flex-wrap items-center justify-end gap-2">
         {actions}
         {editing && (
@@ -210,38 +242,45 @@ export default function CustomizableWorkspace({
             </div>
           )}
         </main>
-        <aside
-          className={`fixed inset-y-0 right-0 z-40 flex max-w-[100vw] items-stretch transition-[width] duration-200 ${open ? 'w-[min(350px,90vw)]' : 'w-0'}`}
-          aria-label="Sidebar de widgets"
-        >
-          <button
-            onClick={() => setOpen(!open)}
-            className="absolute right-full top-1/2 z-50 flex h-16 w-8 -translate-y-1/2 items-center justify-center rounded-l-2xl border border-r-0 bg-card text-foreground shadow-lg transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
-            aria-label={open ? 'Recolher painel lateral' : 'Abrir painel lateral'}
-            aria-expanded={open}
-            type="button"
+        {createPortal(
+          <aside
+            className={`jf-workspace-drawer fixed inset-y-0 right-0 z-40 flex max-w-[100vw] items-stretch ${open ? 'w-[min(350px,90vw)]' : 'w-0'}`}
+            aria-label="Sidebar de widgets"
           >
-            {open ? <ChevronRight className="h-5 w-5" /> : <ChevronLeft className="h-5 w-5" />}
-          </button>
-          {open && (
-            <div
-              className="flex h-[100dvh] w-full min-w-0 flex-col overflow-y-auto overflow-x-hidden border-l bg-card p-3 pt-5 shadow-2xl"
-              onDragOver={(event) => editing && event.preventDefault()}
-              onDrop={(event) => onDrop(event, 'side')}
+            <button
+              onClick={toggleOpen}
+              className="jf-workspace-toggle absolute right-full top-[calc(50%-32px)] z-50 flex h-16 w-10 items-center justify-center rounded-l-2xl border border-r-0 bg-card text-foreground shadow-lg transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+              aria-label={open ? 'Recolher painel lateral' : 'Abrir painel lateral'}
+              aria-expanded={open}
+              type="button"
             >
-              <p className="mb-3 px-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Painel lateral
-              </p>
-              <div className="min-w-0 space-y-3">{render('side')}</div>
-              {editing && (
-                <div className="mt-3 rounded-lg border-2 border-dashed p-4 text-center text-xs text-muted-foreground">
-                  Solte widgets aqui
-                </div>
-              )}
-            </div>
-          )}
-        </aside>
+              {open ? <ChevronRight className="h-5 w-5" /> : <ChevronLeft className="h-5 w-5" />}
+            </button>
+            {open && (
+              <div
+                className="flex h-[100dvh] w-full min-w-0 flex-col overflow-y-auto overflow-x-hidden border-l bg-card p-3 pt-5 shadow-2xl"
+                onDragOver={(event) => editing && event.preventDefault()}
+                onDrop={(event) => onDrop(event, 'side')}
+              >
+                <p className="mb-3 px-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Painel lateral
+                </p>
+                <div className="min-w-0 space-y-3">{render('side')}</div>
+                {editing && (
+                  <div className="mt-3 rounded-lg border-2 border-dashed p-4 text-center text-xs text-muted-foreground">
+                    Solte widgets aqui
+                  </div>
+                )}
+              </div>
+            )}
+          </aside>,
+          document.body
+        )}
       </div>
     </div>
   );
+}
+
+export default function CustomizableWorkspace(props: Parameters<typeof Workspace>[0]) {
+  return <Workspace key={props.userId} {...props} />;
 }

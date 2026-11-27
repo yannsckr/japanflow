@@ -1,6 +1,7 @@
 import { confirmOtaPilotStartup } from '@/releases/ota/components/otaPilotStartup';
 import { useOtaOperationalState } from '@/releases/ota/useOtaOperationalState';
 import { useOtaAutomaticUpdate } from '@/releases/ota/useOtaAutomaticUpdate';
+import { useOtaDeviceReport } from '@/releases/ota/useOtaDeviceReport';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { Camera as NativeCamera, CameraResultType, CameraSource } from '@capacitor/camera';
@@ -517,6 +518,7 @@ export default function MotoboyExperience({ initialScreen = 'home' }: { initialS
     onHomeScreen: screen === 'home',
   });
 
+  useOtaDeviceReport(currentUser?.id);
   const otaProgress = useOtaAutomaticUpdate(currentUser?.id, otaState.getOperationalState);
 
   useEffect(() => {

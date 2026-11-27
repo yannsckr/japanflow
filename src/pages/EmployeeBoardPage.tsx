@@ -173,12 +173,18 @@ const EmployeeBoardPage = () => {
         </div>
       </section>
 
-      {currentUser?.id === viewUserId && isJulio(currentUser) && (
-        <SectorTasksList userId={viewUserId} />
-      )}
       <CustomizableWorkspace
         userId={viewUserId}
         blocks={[
+          ...(currentUser?.id === viewUserId && isJulio(currentUser)
+            ? [
+                {
+                  id: 'sector-tasks',
+                  label: 'Tarefas do setor',
+                  content: <SectorTasksList userId={viewUserId} />,
+                },
+              ]
+            : []),
           ...(currentUser && !employeeId && canSeePickups(currentUser)
             ? [{ id: 'pickups', label: 'Retiradas', content: <PickupsPanel /> }]
             : []),

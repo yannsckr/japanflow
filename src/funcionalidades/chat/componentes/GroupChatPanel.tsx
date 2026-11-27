@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { useApp } from '@/contexts/AppContext';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import ChatComposer from './ChatComposer';
+import { showChatCaption } from './chatCaption';
 import { Send, Paperclip, Image, FileText } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ChatRichText } from './ChatRichText';
@@ -227,7 +228,7 @@ const GroupChatPanel = ({ groupId, groupName }: GroupChatPanelProps) => {
                     src={msg.attachment_url}
                     alt="Imagem enviada no grupo"
                     onClick={() => setEnlargedImage(msg.attachment_url)}
-                    className="max-h-56 max-w-full cursor-zoom-in rounded-xl object-cover"
+                    className="h-auto max-h-80 w-[280px] max-w-full cursor-zoom-in rounded-xl object-contain transition-opacity hover:opacity-90"
                   />
                 )}
 
@@ -240,9 +241,16 @@ const GroupChatPanel = ({ groupId, groupName }: GroupChatPanelProps) => {
               </div>
             )}
 
-            <p className={cn('whitespace-pre-wrap break-words', msg.deleted && 'italic')}>
-              <ChatRichText text={msg.content || ''} />
-            </p>
+            {showChatCaption(
+              msg.content,
+              msg.attachment_type,
+              Boolean(msg.attachment_url),
+              Boolean(msg.deleted)
+            ) && (
+              <p className={cn('whitespace-pre-wrap break-words', msg.deleted && 'italic')}>
+                <ChatRichText text={msg.content || ''} />
+              </p>
+            )}
 
             <div className="mt-1 flex items-center gap-1">
               <span className={cn('text-[10px]', isMe ? 'opacity-60' : 'text-muted-foreground')}>
@@ -354,7 +362,7 @@ const GroupChatPanel = ({ groupId, groupName }: GroupChatPanelProps) => {
           <Paperclip className="h-4 w-4" />
         </Button>
 
-        <Input
+        <ChatComposer
           placeholder={uploadingImage ? 'Enviando imagem…' : 'Digite uma mensagem...'}
           value={text}
           onChange={(e) => {
@@ -364,13 +372,12 @@ const GroupChatPanel = ({ groupId, groupName }: GroupChatPanelProps) => {
           }}
           onBlur={stopTyping}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') {
+            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
               e.preventDefault();
               handleSend();
             }
           }}
           onPaste={handlePaste}
-          className="min-w-0 text-sm"
         />
 
         <Button onClick={handleSend} disabled={!text.trim()} size="icon">

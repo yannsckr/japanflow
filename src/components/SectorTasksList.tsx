@@ -1,4 +1,5 @@
 import { HandMetal } from 'lucide-react';
+import { useState } from 'react';
 import { toast } from 'sonner';
 
 import { useApp } from '@/contexts/AppContext';
@@ -20,6 +21,22 @@ const PRIORITY_STYLES = {
 const SectorTasksList = ({ userId }: SectorTasksListProps) => {
   const { users, currentUser, operationalTasks, claimSectorTask } = useApp();
   const user = users.find((item) => item.id === userId);
+  const key = `jf:sector-tasks:hidden:${userId}`;
+  const [hidden, setHidden] = useState(() => {
+    try {
+      return localStorage.getItem(key) === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const toggle = () => {
+    setHidden(!hidden);
+    try {
+      localStorage.setItem(key, String(!hidden));
+    } catch {
+      /* unavailable */
+    }
+  };
 
   if (!user || !currentUser || currentUser.id !== userId || !isJulio(currentUser)) return null;
 
@@ -27,13 +44,12 @@ const SectorTasksList = ({ userId }: SectorTasksListProps) => {
     (task) =>
       task.sector &&
       task.sector === 'expedicao' &&
+      task.status !== 'done' &&
       !task.assigneeId &&
       !(task.assigneeIds || []).length &&
       !(task.claimedByIds || []).includes(user.id) &&
       !(task as typeof task & { archivedAt?: string }).archivedAt
   );
-
-  if (sectorTasks.length === 0) return null;
 
   const handleClaim = async (taskId: string) => {
     try {
@@ -46,7 +62,7 @@ const SectorTasksList = ({ userId }: SectorTasksListProps) => {
 
   return (
     <section className="jf-surface overflow-hidden p-4">
-      <div className="mb-3 flex items-center justify-between gap-3">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2.5">
           <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10 text-primary">
             <HandMetal className="h-4 w-4" />
@@ -59,9 +75,15 @@ const SectorTasksList = ({ userId }: SectorTasksListProps) => {
             </p>
           </div>
         </div>
+        <Button type="button" size="sm" variant="outline" aria-expanded={!hidden} onClick={toggle}>
+          {hidden ? 'Mostrar tarefas' : 'Ocultar tarefas'}
+        </Button>
       </div>
 
-      <div className="space-y-2">
+      <div className="space-y-2" hidden={hidden}>
+        {sectorTasks.length === 0 && (
+          <p className="text-xs text-muted-foreground">Nenhuma tarefa disponível.</p>
+        )}
         {sectorTasks.map((task) => (
           <div
             key={task.id}

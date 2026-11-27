@@ -493,7 +493,7 @@
   --jf-motion-fast: 160ms;
   --jf-motion-base: 220ms;
   --jf-motion-slow: 340ms;
-  --jf-motion-ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --jf-motion-ease: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 /* Movimento padrão: somente componentes interativos, nunca cada div do app. */
@@ -691,7 +691,7 @@ html.jf-theme-fallback #root {
 @media (min-width: 1024px) {
   .jf-workspace-shell {
     margin-right: var(--jf-workspace-side, 0px);
-    transition: margin-right 300ms ease-in-out;
+    transition: margin-right 280ms var(--jf-motion-ease);
   }
   .jf-workspace-main {
     min-width: 0;
@@ -745,4 +745,30 @@ html.jf-theme-fallback #root {
 }
 .jf-ti-light .jf-footer-logo-dark {
   display: none;
+}
+
+/* V49.0.2: fixed drawer outside transformed page; stable hit target. */
+.jf-workspace-drawer {
+  transition: width 280ms var(--jf-motion-ease);
+}
+.jf-workspace-toggle,
+.jf-workspace-toggle:active {
+  transform: none;
+  touch-action: manipulation;
+}
+.jf-chat-composer {
+  display: block;
+  box-sizing: border-box;
+  min-height: 42px;
+  max-height: 144px;
+  line-height: 20px;
+  padding: 10px 12px;
+  resize: none;
+  overflow-x: hidden;
+}
+@media (prefers-reduced-motion: reduce) {
+  .jf-workspace-drawer,
+  .jf-workspace-shell {
+    transition: none;
+  }
 }
