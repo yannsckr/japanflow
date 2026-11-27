@@ -228,7 +228,8 @@ export default function MotoboyJourneyManager({
       );
     } catch (error) {
       console.error('[motoboyJourney] registro da jornada', error);
-      toast.error('Não foi possível registrar a jornada.');
+      const message = error instanceof Error ? error.message : '';
+      toast.error(message || 'Não foi possível registrar a jornada.');
     } finally {
       releaseOperation();
       setBusy(false);
@@ -292,13 +293,18 @@ export default function MotoboyJourneyManager({
             )}
             <button
               type="button"
-              disabled={hasOpenRides}
+              disabled={busy || cameraBusy || lunchBusy}
               title={hasOpenRides ? 'Finalize todas as corridas antes de encerrar o dia.' : ''}
               className="rounded-lg border border-primary/30 px-3 py-2 font-medium disabled:cursor-not-allowed disabled:opacity-50"
               onClick={() => {
                 if (getOperationalLockState().updateLocked) {
                   toast.info('JapanFlow em atualizacao. Aguarde.');
                   return;
+                }
+                if (hasOpenRides) {
+                  toast.info(
+                    'Existem corridas sinalizadas em aberto. O servidor verificará o encerramento.'
+                  );
                 }
                 setEndOpen(true);
               }}
