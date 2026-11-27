@@ -41,6 +41,7 @@ import ChatPage from '@/pages/ChatPage';
 import VersionInfo from '@/releases/VersionInfo';
 import MotoboyMap from './MotoboyMap';
 import MotoboyJourneyManager from './MotoboyJourneyManager';
+import { useJourneyDay } from './useJourneyDay';
 import { useJourneyGpsRecording } from './useJourneyGpsRecording';
 import { useMotoboyRides, type Ride } from './useMotoboyRides';
 import { canOperateRide } from './rideSyncPolicy';
@@ -256,6 +257,7 @@ export default function MotoboyExperience({ initialScreen = 'home' }: { initialS
     if (localStorage.getItem('japanflow-theme') === null) setTheme('light');
   }, [setTheme]);
   const rides = useMotoboyRides(currentUser?.id);
+  const operationalDay = useJourneyDay();
   useJourneyGpsRecording(currentUser?.id, rides.all);
   const [screen, setScreen] = useState<Screen>(initialScreen);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -504,7 +506,7 @@ export default function MotoboyExperience({ initialScreen = 'home' }: { initialS
     }
   };
   const unread = notifications.filter((n) => !n.read).length;
-  const today = localDay();
+  const today = operationalDay;
   const todayRides = useMemo(
     () => rides.all.filter((r) => rideDay(r) === today),
     [rides.all, today]
@@ -597,6 +599,7 @@ export default function MotoboyExperience({ initialScreen = 'home' }: { initialS
   return (
     <main className={`jm-app jm-theme-${theme}`}>
       <MotoboyJourneyManager
+        key={`${currentUser?.id || ''}_${operationalDay}`}
         userId={currentUser?.id || ''}
         showActions={screen === 'home' || screen === 'journey'}
         hasOpenRides={rides.pending.length > 0 || rides.active.length > 0}

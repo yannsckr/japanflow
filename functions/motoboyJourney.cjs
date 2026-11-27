@@ -57,6 +57,13 @@ exports.motoboyJourney = onCall({
   const action = request.data?.action;
   const now = new Date();
   const date = today(now);
+  if (action !== 'status' && request.data?.day !== undefined && request.data.day !== date) {
+    throw new HttpsError('failed-precondition', 'O dia mudou. Atualize a jornada e tente novamente.');
+  }
+  const assertCurrentDay = () => {
+    if (today(new Date()) !== date)
+      throw new HttpsError('failed-precondition', 'O dia mudou durante a operação. Tente novamente.');
+  };
   const docRef = db.doc(`motoboy_journeys/${userId}_${date}`);
   const daySnap = await docRef.get();
   const jornada = daySnap.data();
@@ -72,6 +79,7 @@ exports.motoboyJourney = onCall({
     await recordOdometerPhoto(userId, photoPath);
     await db.runTransaction(async (tx) => {
       const live = await tx.get(docRef);
+      assertCurrentDay();
       if (live.exists && live.data().started_at) throw new HttpsError('already-exists', 'Jornada já iniciada.');
       tx.set(docRef, {
         user_id: userId, day: date, started_at: FieldValue.serverTimestamp(),
@@ -91,6 +99,7 @@ exports.motoboyJourney = onCall({
   if (action === 'lunchStart') {
     await db.runTransaction(async (tx) => {
       const live = await tx.get(docRef);
+      assertCurrentDay();
       if (!live.exists || !live.data().started_at || live.data().ended_at || live.data().lunch_started_at)
         throw new HttpsError('failed-precondition', 'Almoço já iniciado ou jornada encerrada.');
       tx.update(docRef, { lunch_started_at: FieldValue.serverTimestamp(), updated_at: FieldValue.serverTimestamp() });
@@ -100,6 +109,7 @@ exports.motoboyJourney = onCall({
   if (action === 'lunchEnd') {
     await db.runTransaction(async (tx) => {
       const live = await tx.get(docRef);
+      assertCurrentDay();
       if (!live.exists || !live.data().lunch_started_at || live.data().lunch_ended_at || live.data().ended_at)
         throw new HttpsError('failed-precondition', 'Almoço ainda não iniciado ou já encerrado.');
       tx.update(docRef, { lunch_ended_at: FieldValue.serverTimestamp(), updated_at: FieldValue.serverTimestamp() });
@@ -118,8 +128,19 @@ exports.motoboyJourney = onCall({
     await recordOdometerPhoto(userId, photoPath);
     const result = await db.runTransaction(async (tx) => {
       const live = await tx.get(docRef);
-      if (!live.exists || live.data().ended_at) throw new HttpsError('failed-precondition', 'Jornada já encerrada.');
+      assertCurrentDay();
+      if (!live.exists || !live.data().started_at || live.data().ended_at) throw new HttpsError('failed-precondition', 'Jornada já encerrada.');
       if (odometer < live.data().start_odometer) throw new HttpsError('invalid-argument', 'Leitura final inválida.');
+      if (live.data().lunch_started_at && !live.data().lunch_ended_at)
+        throw new HttpsError('failed-precondition', 'Finalize o almoco antes de encerrar a jornada.');
+      if (photoPath === live.data().start_photo_path)
+        throw new HttpsError('invalid-argument', 'Envie uma nova foto de encerramento.');
+      const pending = await tx.get(db.collection('motoboy_assignments')
+        .where('assigned_to', '==', userId)
+        .where('status', 'in', ['pending', 'accepted']).limit(1));
+      if (!pending.empty)
+        throw new HttpsError('failed-precondition', 'Ainda existem corridas pendentes ou em andamento.');
+      assertCurrentDay();
       const totalKm = Math.round((odometer - live.data().start_odometer) * 10) / 10;
       tx.update(docRef, {
         ended_at: FieldValue.serverTimestamp(), end_odometer: odometer,

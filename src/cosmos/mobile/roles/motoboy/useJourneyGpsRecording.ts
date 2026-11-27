@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { journeyDay, useJourneyDay } from './useJourneyDay';
 import {
   addDoc,
   collection,
@@ -22,6 +23,7 @@ import type { Ride } from './useMotoboyRides';
  * A sessao em memoria e a contagem sao indicativas; regras do Firestore exigem jornada valida.
  */
 export function useJourneyGpsRecording(userId: string | undefined, rides: Ride[]) {
+  const day = useJourneyDay();
   const activeRides = rides.filter((r) => r.status === 'accepted');
   const rideIds = activeRides.map((r) => r.id);
   const ridesRef = useRef<string[]>(rideIds);
@@ -39,6 +41,10 @@ export function useJourneyGpsRecording(userId: string | undefined, rides: Ride[]
     let disposed = false;
     const reconcile = () => {
       if (disposed) return;
+      if (journeyDay() !== day) {
+        void stopNativeGpsTransport().catch(() => undefined);
+        return;
+      }
       const consent = localStorage.getItem(`japanflow:location-opt-in:${userId}`) === 'true';
       if (!journeyActive || !consent) {
         void stopNativeGpsTransport().catch(() => undefined);
@@ -49,12 +55,6 @@ export function useJourneyGpsRecording(userId: string | undefined, rides: Ride[]
         console.warn('[nativeGPS] indisponível, watcher anterior mantido', error);
       });
     };
-    const day = new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'America/Sao_Paulo',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    }).format(new Date());
     const unsubscribe = onSnapshot(
       doc(db, 'motoboy_journeys', `${userId}_${day}`),
       (snapshot) => {
@@ -77,7 +77,7 @@ export function useJourneyGpsRecording(userId: string | undefined, rides: Ride[]
       window.removeEventListener('japanflow:gps-consent', reconcile);
       void stopNativeGpsTransport().catch(() => undefined);
     };
-  }, [userId]);
+  }, [userId, day]);
 
   useEffect(() => {
     if (!userId) {
@@ -85,14 +85,7 @@ export function useJourneyGpsRecording(userId: string | undefined, rides: Ride[]
       return;
     }
     // A chave da jornada e definida pelo servidor na timezone de Sao Paulo.
-    const now = new Date();
-    const date = new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'America/Sao_Paulo',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    }).format(now);
-    const journeyId = `${userId}_${date}`;
+    const journeyId = `${userId}_${day}`;
     const unsubscribe = onSnapshot(
       doc(db, 'motoboy_journeys', journeyId),
       (snapshot) => {
@@ -116,7 +109,7 @@ export function useJourneyGpsRecording(userId: string | undefined, rides: Ride[]
       enabled.current = false;
       unsubscribe();
     };
-  }, [userId]);
+  }, [userId, day]);
 
   useEffect(() => {
     if (!userId) return;
@@ -126,10 +119,24 @@ export function useJourneyGpsRecording(userId: string | undefined, rides: Ride[]
     let flushing = false;
     const consent = () => localStorage.getItem(`japanflow:location-opt-in:${userId}`) === 'true';
     const flush = async () => {
-      if (cancelled || flushing || !enabled.current || !consent() || !navigator.onLine) return;
+      if (
+        cancelled ||
+        journeyDay() !== day ||
+        flushing ||
+        !enabled.current ||
+        !consent() ||
+        !navigator.onLine
+      )
+        return;
       flushing = true;
       try {
-        while (!cancelled && enabled.current && consent() && navigator.onLine) {
+        while (
+          !cancelled &&
+          journeyDay() === day &&
+          enabled.current &&
+          consent() &&
+          navigator.onLine
+        ) {
           const point = readGpsQueue(userId)[0];
           if (!point) break;
           // A jornada ativa deve corresponder ao dia da amostra.
@@ -202,7 +209,7 @@ export function useJourneyGpsRecording(userId: string | undefined, rides: Ride[]
       if (document.visibilityState === 'visible') void flush();
     }, 30_000);
     const unsubscribe = subscribeNativeLocationSample((position) => {
-      if (cancelled || !enabled.current || !consent()) return;
+      if (cancelled || journeyDay() !== day || !enabled.current || !consent()) return;
       const point = cleanJourneyGpsPoint(position);
       if (!point || point.timestamp - lastAt.current < 15000) return;
       const prev = previous.current;
@@ -242,5 +249,5 @@ export function useJourneyGpsRecording(userId: string | undefined, rides: Ride[]
       document.removeEventListener('visibilitychange', onVisibility);
       window.clearInterval(interval);
     };
-  }, [userId]);
+  }, [userId, day]);
 }

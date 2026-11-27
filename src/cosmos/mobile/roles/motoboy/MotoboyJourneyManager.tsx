@@ -82,8 +82,15 @@ export default function MotoboyJourneyManager({
   const day = spDay(now);
 
   useEffect(() => {
-    const id = window.setInterval(() => setNow(new Date()), 30000);
-    return () => clearInterval(id);
+    const sync = () => setNow(new Date());
+    const id = window.setInterval(sync, 1000);
+    document.addEventListener('visibilitychange', sync);
+    window.addEventListener('focus', sync);
+    return () => {
+      window.clearInterval(id);
+      document.removeEventListener('visibilitychange', sync);
+      window.removeEventListener('focus', sync);
+    };
   }, []);
   useEffect(() => {
     if (!userId) {
@@ -92,10 +99,16 @@ export default function MotoboyJourneyManager({
       return;
     }
     setLoaded(false);
+    setJourney(null);
     setReadError('');
     return onSnapshot(
       doc(db, 'motoboy_journeys', `${userId}_${day}`),
+      { includeMetadataChanges: true },
       (snapshot) => {
+        if (snapshot.metadata.fromCache || snapshot.metadata.hasPendingWrites) {
+          setLoaded(false);
+          return;
+        }
         setJourney(snapshot.exists() ? (snapshot.data() as Journey) : null);
         setLoaded(true);
         setReadError('');
@@ -190,6 +203,10 @@ export default function MotoboyJourneyManager({
   };
 
   const submitOdometer = async () => {
+    if (!loaded || busy || spDay(new Date()) !== day) {
+      toast.error('Aguarde a sincronização da jornada atual.');
+      return;
+    }
     if (!photo || !/^image\/(jpeg|png|webp)$/.test(photo.type) || photo.size > 8 * 1024 * 1024) {
       toast.error('Adicione uma imagem JPG, PNG ou WebP de até 8 MB.');
       return;
@@ -215,6 +232,7 @@ export default function MotoboyJourneyManager({
       await uploadBytes(ref(storage, photoPath), photo, { contentType: photo.type });
       const response = await callJourney({
         action: endOpen ? 'end' : 'start',
+        day,
         odometer: currentOdometer,
         photoPath,
       });
@@ -248,7 +266,7 @@ export default function MotoboyJourneyManager({
 
     setLunchBusy(true);
     try {
-      await callJourney({ action });
+      await callJourney({ action, day });
       toast.success(action === 'lunchStart' ? 'Almoço iniciado.' : 'Retorno do almoço registrado.');
     } catch (error) {
       console.error('[motoboyJourney] almoço', error);
@@ -261,7 +279,7 @@ export default function MotoboyJourneyManager({
 
   return (
     <>
-      {showActions && journey?.started_at && !journey.ended_at && (
+      {showActions && loaded && journey?.started_at && !journey.ended_at && (
         <div className="mx-4 my-2 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-card p-3 text-xs text-foreground">
           <div className="flex items-center gap-2">
             <Gauge size={16} /> Início: {journey.start_odometer.toLocaleString('pt-BR')} km
@@ -314,7 +332,7 @@ export default function MotoboyJourneyManager({
           </div>
         </div>
       )}
-      {showActions && journey?.ended_at && (
+      {showActions && loaded && journey?.ended_at && (
         <p className="mx-4 my-2 rounded-xl border border-border bg-card p-3 text-xs text-muted-foreground">
           <ShieldCheck size={15} className="mr-1 inline text-primary" /> Jornada encerrada ·{' '}
           {journey.odometer_km?.toLocaleString('pt-BR') ?? '—'} km registrados no odômetro.
